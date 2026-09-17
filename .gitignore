@@ -1,0 +1,36 @@
+# Dependencies and package-manager caches
+node_modules/
+**/node_modules/
+.npm-cache/
+.pnpm-store/
+
+# Build and test output
+backend/dist/
+frontend/dist/
+**/coverage/
+*.tsbuildinfo
+.vite/
+
+# Runtime data and logs
+backend/data/*.json
+backend/data-test/
+*.log
+logs/
+
+# Secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

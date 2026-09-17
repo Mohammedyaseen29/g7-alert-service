@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Production target: PostgreSQL. JSON FileStore mirrors these entities for dev
+// without a database. Relations: Station 1->N Sensor 1->1 configs, 1->N events.
+
+model Station {
+  id        String   @id @default("000000")
+  lastSeen  DateTime?
+  sensors   Sensor[]
+}
+
+model Sensor {
+  id        String   @id // "02"
+  stationId String   @default("000000")
+  station   Station  @relation(fields: [stationId], references: [id])
+  name      String
+  type      String
+  fieldMap  Json
+  config    SensorConfiguration?
+  alarm     AlarmConfiguration?
+  events    AlarmEvent[]
+}
+
+model SensorConfiguration {
+  id       Int    @id @default(autoincrement())
+  sensorId String @unique
+  sensor   Sensor @relation(fields: [sensorId], references: [id])
+  updatedAt DateTime @updatedAt
+}
+
+model AlarmConfiguration {
+  id        Int      @id @default(autoincrement())
+  sensorId  String   @unique
+  sensor    Sensor   @relation(fields: [sensorId], references: [id])
+  thresholds Json
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id       String @id @default(cuid())
+  username String @unique
+  hash     String
+  role     String @default("VIEWER")
+}
+
+model AlarmEvent {
+  id         String   @id @default(cuid())
+  stationId  String
+  sensorId   String
+  sensor     Sensor   @relation(fields: [sensorId], references: [id])
+  kind       String
+  lifecycle  String
+  value      Float?
+  threshold  Float?
+  startedAt  DateTime
+  recoveredAt DateTime?
+  lastNotifiedAt DateTime?
+  message    String
+
+  @@index([sensorId, startedAt])
+}
+
+model NotificationLog {
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
+  type     String
+  sensorId String
+  kind     String
+}
+
+model AppSettings {
+  id                 String   @id @default("default")
+  notificationEmails Json     @default("[]")
+  updatedAt          DateTime @updatedAt
+}

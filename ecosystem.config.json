@@ -1,0 +1,3 @@
+{
+  "apps": [{ "name": "g7-alert-service", "script": "./dist/index.js", "cwd": "./backend", "instances": 1, "exec_mode": "fork", "autorestart": true, "max_restarts": 20, "env": { "NODE_ENV": "production" } }]
+}
