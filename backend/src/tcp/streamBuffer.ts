@@ -81,4 +81,3 @@ export class G7StreamBuffer {
     return this.buf.length;
   }
 }
-
