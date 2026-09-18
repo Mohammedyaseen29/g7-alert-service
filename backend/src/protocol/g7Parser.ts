@@ -68,4 +68,3 @@ export function decodeG7Timestamp(tm?: string): Date | null {
   void hh;
   return isNaN(d.getTime()) ? null : d;
 }
-
