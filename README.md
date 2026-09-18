@@ -78,4 +78,3 @@ Option B: `pm2 start ecosystem.config.json && pm2-save`. Never `nodemon` in prod
 - `Kxx` raw preserved; byte meanings **not** reverse-engineered (length change observed on battery pull).
 - `A03/A04…0.000` treated as present-but-zero readings; absent keys = sensor not in frame.
 - With a configured `DATABASE_URL`, application state is persisted in PostgreSQL through Prisma. For this Windows development host, the reachable `DIRECT_URL` session-pooler is used by the runtime client.
-
