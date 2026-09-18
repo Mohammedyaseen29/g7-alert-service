@@ -27,4 +27,3 @@ describe('Phase 2: generic G7 parser', () => {
     expect(() => parseG7Message('GARBAGE')).toThrow();
   });
 });
-
