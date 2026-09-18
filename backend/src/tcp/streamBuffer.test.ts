@@ -40,4 +40,3 @@ describe('Phase 1: G7 framing / TCP stream handling', () => {
     expect(b.push('#STA:PARTIAL')).toEqual([]);
   });
 });
-
