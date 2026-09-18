@@ -74,7 +74,8 @@ Option B: `pm2 start ecosystem.config.json && pm2-save`. Never `nodemon` in prod
 
 ## Known assumptions / unknowns
 
-- Assumed: plaintext `#STA:…;EE;#`, `;`-separated, `TM` = YYMMDDhhmmss (no invented TZ).
+- Observed: packets may have a binary prefix before `#STA:` and end with a changing two-hex-digit checksum plus `;#` (for example `E6;#`); fields are `;`-separated and `TM` = YYMMDDhhmmss (no invented TZ).
 - `Kxx` raw preserved; byte meanings **not** reverse-engineered (length change observed on battery pull).
 - `A03/A04…0.000` treated as present-but-zero readings; absent keys = sensor not in frame.
 - With a configured `DATABASE_URL`, application state is persisted in PostgreSQL through Prisma. For this Windows development host, the reachable `DIRECT_URL` session-pooler is used by the runtime client.
+
