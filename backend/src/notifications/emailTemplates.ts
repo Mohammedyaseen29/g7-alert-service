@@ -1,10 +1,10 @@
 import type { AlarmEvent } from '../alarms/alarmEngine.js';
 
 export function alarmSubject(a: AlarmEvent): string {
-  return `[G7 ALERT] Sensor ${a.sensorId} ${label(a)}`;
+  return `[Pride Monitor ALERT] Sensor ${a.sensorId} ${label(a)}`;
 }
 export function recoverySubject(a: AlarmEvent): string {
-  return `[G7 RECOVERED] Sensor ${a.sensorId} ${label(a)} Normal`;
+  return `[Pride Monitor RECOVERED] Sensor ${a.sensorId} ${label(a)} Normal`;
 }
 
 function label(a: AlarmEvent): string {

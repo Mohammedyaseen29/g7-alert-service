@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import { Button } from '../components/ui/button.js';
 import { api } from '../api.js';
 import type { AlarmConfig } from '../types.js';
 import { validateConfig } from '../types.js';
@@ -15,6 +17,7 @@ export function AlarmConfigPage() {
   useEffect(() => { (async () => { if (id) setCfg(await api.getConfig(id) as AlarmConfig); })(); }, [id]);
   return (
     <main style={{ maxWidth: 560 }}>
+      <Button variant="outline" className="mb-3 gap-2" asChild><Link to="/"><ArrowLeft className="size-4" />Back to sensors</Link></Button>
       <div className="card">
         <h2>Sensor {id} — Alarm configuration</h2>
         {!canEdit && <div className="error">VIEWER role: read-only.</div>}
@@ -59,7 +62,7 @@ export function AlarmConfigPage() {
             await api.putSensorDefinition(id!, { name: cfg.name.trim(), secondaryRole: cfg.secondaryRole ?? 'unclassified' });
             const { fields: _fields, name: _name, secondaryRole: _secondaryRole, ...alarmConfig } = cfg;
             await api.putConfig(id!, alarmConfig);
-            setMsg('Saved. Backend is source of truth.');
+            setMsg('Node configuration saved.');
           } catch (e) {
             setErrs([String(e)]);
           }

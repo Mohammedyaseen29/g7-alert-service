@@ -228,7 +228,7 @@ const server = createServer(app);
 bus.attach(server);
 await tcp.listen();
 server.listen(cfg.HTTP_PORT, cfg.HTTP_HOST, () => {
-  logger.info({ http: `${cfg.HTTP_HOST}:${cfg.HTTP_PORT}`, g7: `${cfg.G7_HOST}:${cfg.G7_PORT}` }, 'G7 Alert Service started');
+  logger.info({ http: `${cfg.HTTP_HOST}:${cfg.HTTP_PORT}`, g7: `${cfg.G7_HOST}:${cfg.G7_PORT}` }, 'Pride Monitor started');
 });
 
 setInterval(() => {

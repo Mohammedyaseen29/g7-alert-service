@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import { Button } from '../components/ui/button.js';
 import { api } from '../api.js';
 import type { Sensor } from '../types.js';
 
@@ -19,7 +21,7 @@ export function SensorDetail() {
   const thresholds = s.thresholds ?? {};
   return (
     <main>
-      <Link to="/">← Dashboard</Link>
+      <Button variant="outline" className="gap-2" asChild><Link to="/"><ArrowLeft className="size-4" />Back to sensors</Link></Button>
       <div className="card" style={{ marginTop: 8 }}>
         <h2>Sensor {s.id} — {s.name}</h2>
         <div>Sensor ID: {s.id}</div>
@@ -28,7 +30,7 @@ export function SensorDetail() {
         {s.reading?.humidity !== undefined && <div>Humidity: <b>{s.reading.humidity}%</b></div>}
         {s.reading?.secondary !== undefined && <div>Secondary channel ({s.fields.secondary}): <b>{s.reading.secondary}</b></div>}
         {s.reading?.battery !== undefined && <div>Battery: <b>{s.reading.battery}V</b></div>}
-        <div>Status: {s.reading ? 'Connected' : 'No data'}</div>
+        <div>Status: {s.online ? 'Online' : s.reading ? 'Offline — last known readings' : 'No data'}</div>
         <div>Last seen: {s.reading?.lastSeen ?? 'never'}</div>
         <h3>Thresholds</h3>
         <div className="threshold-grid">

@@ -1,7 +1,22 @@
-# G7 Alert Service
+# Pride Monitor
 
 Independent monitoring and alerting for G7 wireless sensors. It continues to
 receive data and evaluate alarms when the original G7 Client interface is closed.
+
+## Pride Monitor dashboard
+
+The React dashboard uses Tailwind CSS, shadcn-style Radix UI components,
+Lucide icons, and Recharts. It includes responsive sensor cards, status filters,
+an inspection drawer, alarm activity, notification settings, and browser sound controls.
+
+- Counts and readings come from the live API; there are no seeded demo sensor cards.
+- Critical indicates an active alarm; Warning indicates an offline sensor or an enabled threshold breach.
+- Sparklines and CSV exports use up to 60 distinct readings observed in the current dashboard session. They reset when the dashboard is unmounted or reloaded; this is not long-term telemetry storage.
+- The temperature gauge uses configured low/high limits. Without valid enabled limits, it shows an unavailable scale rather than inventing one.
+- The API currently supplies sensor IDs, not hardware EUI identifiers.
+- Existing authentication roles still govern configuration actions. Browser sound needs a user interaction to enable playback.
+
+Frontend validation: run `npm test` and `npm run build` from `frontend`.
 
 ```
 Sensors →(RF)→ Base Station →(TCP)→ Node backend → Parser → State → Alarms → Email

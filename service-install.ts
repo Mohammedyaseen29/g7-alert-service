@@ -5,8 +5,8 @@ import { Service } from 'node-windows';
 import path from 'node:path';
 
 const svc = new Service({
-  name: 'G7 Alert Service',
-  description: 'Independent G7 sensor monitoring, alarms and Brevo email alerts',
+  name: 'Pride Monitor',
+  description: 'Pride Monitor industrial sensor monitoring, alarms and email alerts',
   script: path.join(process.cwd(), 'backend', 'dist', 'index.js'),
   nodeOptions: [],
   env: [{ name: 'NODE_ENV', value: 'production' }],
