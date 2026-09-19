@@ -1,16 +1,17 @@
 import type { G7ParsedMessage } from './g7Types.js';
-import { FRAME_END, FRAME_START } from '../tcp/streamBuffer.js';
+import { FRAME_END_LENGTH, FRAME_START, hasFrameEnd } from '../tcp/streamBuffer.js';
 
 const GENERIC_RE = /^([AHBK])(\d{2})$/;
 const CORE_KEYS = new Set(['STA', 'L', 'TM']);
 
-// Parses "#STA:000000,111;L:381;TM:260916214100;A01:26.56;...;EE;#"
+// Parses "#STA:000000,111;L:381;TM:260916214100;A01:26.56;...;E6;#".
+// The final two hex digits are a checksum and vary from message to message.
 // Never invents sensor meaning; preserves unknown fields.
 export function parseG7Message(raw: string): G7ParsedMessage {
-  if (!raw.startsWith(FRAME_START) || !raw.endsWith(FRAME_END)) {
+  if (!raw.startsWith(FRAME_START) || !hasFrameEnd(raw)) {
     throw new Error('Invalid G7 frame boundaries');
   }
-  const inner = raw.slice(FRAME_START.length, -FRAME_END.length);
+  const inner = raw.slice(FRAME_START.length, -FRAME_END_LENGTH);
   const segments = inner.split(';').map((s) => s.trim()).filter((s) => s.length > 0);
   const fields: Record<string, string> = {};
   const unknownFields: Record<string, string> = {};

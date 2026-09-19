@@ -18,6 +18,11 @@ describe('Phase 2: generic G7 parser', () => {
     expect(m.fields['X01']).toBe('12345');
     expect(m.unknownFields['X01']).toBe('12345');
   });
+  it('accepts the variable checksum emitted by real hardware', () => {
+    const m = parseG7Message('#STA:00000,111;L:381;TM:260917230004;A01:28.00;A02:28.64;E6;#');
+    expect(m.stationId).toBe('00000');
+    expect(m.fields['A02']).toBe('28.64');
+  });
   it('rejects bad frame', () => {
     expect(() => parseG7Message('GARBAGE')).toThrow();
   });
