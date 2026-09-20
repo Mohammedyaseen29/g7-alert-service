@@ -1,10 +1,11 @@
-const API = '';
+/** Backend origin supplied at build time. */
+export const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL ?? '').trim().replace(/\/$/, '');
 function headers(): HeadersInit {
   const t = localStorage.getItem('g7_token');
   return { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) };
 }
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`${API}${path}`, { ...init, headers: { ...headers(), ...(init?.headers ?? {}) } });
+  const r = await fetch(`${BACKEND_URL}${path}`, { ...init, headers: { ...headers(), ...(init?.headers ?? {}) } });
   if (r.status === 401) {
     localStorage.removeItem('g7_token');
     if (location.pathname !== '/login') location.href = '/login';
@@ -25,4 +26,5 @@ export const api = {
   putNotificationConfig: (emails: string[]) => req<import('./types.js').NotificationConfig>('/api/notifications/config', { method: 'PUT', body: JSON.stringify({ emails }) }),
   alarms: () => req<{ active: { id: string; sensorId: string; kind: string; message: string; startedAt: string }[]; history: unknown[] }>('/api/alarms'),
   status: () => req<Record<string, unknown>>('/api/system/status'),
+  history: (id: string) => req<{ kind: string; value?: number; startedAt: string; recoveredAt?: string }[]>(`/api/sensors/${id}/history`),
 };

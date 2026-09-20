@@ -13,7 +13,7 @@ export function SensorDetail() {
     (async () => {
       if (!id) return;
       setS((await api.sensor(id)) as typeof s);
-      const h = await fetch(`/api/sensors/${id}/history`, { headers: { Authorization: `Bearer ${localStorage.getItem('g7_token')}` } }).then((r) => r.json()).catch(() => []);
+        const h = await api.history(id).catch(() => []);
       setHist(h);
     })();
   }, [id]);
