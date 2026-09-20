@@ -22,7 +22,8 @@ import { z } from 'zod';
 
 const cfg = loadConfig();
 const app = express();
-app.use(cors({ origin: cfg.FRONTEND_ORIGIN }));
+const allowedOrigins = cfg.FRONTEND_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: '256kb' }));
 
 const hasConfiguredDatabase = cfg.DATABASE_URL.length > 0 && !cfg.DATABASE_URL.includes('[YOUR-PASSWORD]');

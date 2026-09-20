@@ -8,7 +8,8 @@ const ConfigSchema = z.object({
   G7_MAX_BUFFER_BYTES: z.coerce.number().default(1048576),
   HTTP_HOST: z.string().default('0.0.0.0'),
   HTTP_PORT: z.coerce.number().default(3000),
-  FRONTEND_ORIGIN: z.string().default('http://localhost:5173'),
+  // Comma-separated browser origins allowed to call the HTTP API.
+  FRONTEND_ORIGIN: z.string().default('https://monitoring.prideengs.com'),
   ALARM_DELAY_SECONDS: z.coerce.number().default(300),
   ALARM_REPEAT_MINUTES: z.coerce.number().default(30),
   SENSOR_TIMEOUT_SECONDS: z.coerce.number().default(120),
@@ -19,7 +20,7 @@ const ConfigSchema = z.object({
   BREVO_SMTP_USER: z.string().default(''),
   BREVO_SMTP_PASSWORD: z.string().default(''),
   ALERT_FROM_EMAIL: z.string().default(''),
-  ALERT_FROM_NAME: z.string().default('Pride Monitor'),
+  ALERT_FROM_NAME: z.string().default('Pride Monitoring'),
   JWT_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('15m'),
