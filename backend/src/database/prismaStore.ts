@@ -28,7 +28,7 @@ function cloneDefaultAlarmConfig(): AlarmConfig {
 export class PrismaStore implements AppStore {
   private writeQueue: Promise<void> = Promise.resolve();
 
-  private constructor(private prisma: PrismaClient, private cache: Cache) {}
+  private constructor(readonly prisma: PrismaClient, private cache: Cache) {}
 
   static async create(): Promise<PrismaStore> {
     // The transaction pooler is ideal for short application queries, but this

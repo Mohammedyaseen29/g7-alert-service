@@ -9,7 +9,9 @@ import { SensorDetail } from './pages/SensorDetail.js';
 import { AlarmConfigPage } from './pages/AlarmConfig.js';
 import { Alarms } from './pages/Alarms.js';
 import { Notifications } from './pages/Notifications.js';
+import { History } from './pages/History.js';
 import { AlarmSound } from './AlarmSound.js';
+import { PwaControls } from './PwaControls.js';
 import { Badge } from './components/ui/badge.js';
 import { Button } from './components/ui/button.js';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu.js';
@@ -171,6 +173,7 @@ function AppRoutes({ token }: { token: string | null }) {
       <Route path="/sensors/:id" element={<Guard><SensorDetail /></Guard>} />
       <Route path="/sensors/:id/config" element={<Guard><AlarmConfigPage /></Guard>} />
       <Route path="/alarms" element={<Guard><Alarms /></Guard>} />
+      <Route path="/history" element={<Guard><History /></Guard>} />
       <Route path="/notifications" element={<Guard><Notifications /></Guard>} />
       <Route path="/settings" element={<Guard><Navigate to="/notifications" replace /></Guard>} />
       <Route path="*" element={<Navigate to={token ? '/' : '/login'} replace />} />
@@ -185,6 +188,7 @@ function Shell() {
   const status = useSystemStatus(Boolean(token));
   const activeTab = useMemo(() => {
     if (location.pathname === '/alarms') return '/alarms';
+    if (location.pathname === '/history') return '/history';
     if (location.pathname === '/notifications' || location.pathname === '/settings') return '/notifications';
     return '/';
   }, [location.pathname]);
@@ -207,6 +211,9 @@ function Shell() {
                   Alarms
                   <AlarmBadge status={status} />
                 </TabsTrigger>
+                <TabsTrigger value="/history" className="h-10 rounded-lg px-3 text-xs font-medium text-slate-300 data-[state=active]:bg-white/10 data-[state=active]:text-white">
+                  History
+                </TabsTrigger>
                 <TabsTrigger value="/notifications" className="h-10 rounded-lg px-3 text-xs font-medium text-slate-300 data-[state=active]:bg-white/10 data-[state=active]:text-white">
                   Settings
                 </TabsTrigger>
@@ -219,6 +226,7 @@ function Shell() {
                 <span>{connection.label}</span>
               </div>
               <AlarmSound />
+              <PwaControls />
               <UserMenu />
             </div>
           </div>

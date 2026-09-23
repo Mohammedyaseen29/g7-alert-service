@@ -7,8 +7,9 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// Production target: PostgreSQL. JSON FileStore mirrors these entities for dev
-// without a database. Relations: Station 1->N Sensor 1->1 configs, 1->N events.
+// Production target: PostgreSQL. JSON FileStore mirrors only the low-volume
+// config, user, and alarm entities for development. Raw sensor history requires
+// PostgreSQL. Relations: Station 1->N Sensor 1->1 configs, 1->N events.
 
 model Station {
   id        String   @id @default("000000")
@@ -79,4 +80,51 @@ model AppSettings {
   id                 String   @id @default("default")
   notificationEmails Json     @default("[]")
   updatedAt          DateTime @updatedAt
+}
+
+// Raw telemetry is separate from sensor inventory and alarms. Production
+// creates this as a PostgreSQL RANGE partitioned table by receivedAt.
+model SensorReading {
+  receivedAt    DateTime @db.Timestamptz(3)
+  packetId      String   @db.Uuid
+  stationId     String
+  sensorId      String
+  deviceTimeRaw String?
+  temperature   Float?
+  temperature2  Float?
+  humidity      Float?
+  secondary     Float?
+  battery       Float?
+  rawStatus     String?
+  rawFields     Json
+
+  @@id([receivedAt, packetId, sensorId])
+  @@index([sensorId, receivedAt])
+  @@map("sensor_readings")
+}
+
+model SensorArchiveDay {
+  day         DateTime @id @db.Date
+  objects     Json
+  rowCount    BigInt
+  completedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("sensor_archive_days")
+}
+
+model SensorExportJob {
+  id          String   @id @default(uuid()) @db.Uuid
+  requestedBy String
+  sensorIds   Json
+  from        DateTime @db.Timestamptz(3)
+  to          DateTime @db.Timestamptz(3)
+  status      String   @default("PENDING")
+  objectKey   String?
+  rowCount    BigInt?
+  error       String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([requestedBy, createdAt])
+  @@map("sensor_export_jobs")
 }

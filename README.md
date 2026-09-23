@@ -11,7 +11,7 @@ an inspection drawer, alarm activity, notification settings, and browser sound c
 
 - Counts and readings come from the live API; there are no seeded demo sensor cards.
 - Critical indicates an active alarm; Warning indicates an offline sensor or an enabled threshold breach.
-- Sparklines and CSV exports use up to 60 distinct readings observed in the current dashboard session. They reset when the dashboard is unmounted or reloaded; this is not long-term telemetry storage.
+- Sparklines and the inspection drawer's quick CSV use up to 60 distinct readings observed in the current dashboard session. The separate **History** page exports durable server-side readings, including older Oracle Object Storage archives.
 - The temperature gauge uses configured low/high limits. Without valid enabled limits, it shows an unavailable scale rather than inventing one.
 - The API currently supplies sensor IDs, not hardware EUI identifiers.
 - Existing authentication roles still govern configuration actions. Browser sound needs a user interaction to enable playback.
@@ -20,7 +20,10 @@ Frontend validation: run `npm test` and `npm run build` from `frontend`.
 
 ```
 Sensors →(RF)→ Base Station →(TCP)→ Node backend → Parser → State → Alarms → Email
-React UI → REST/WS → Node backend → State / Config / DB
+React PWA → REST/WS → Node backend → State / Config / DB
+G7 frames → fsynced local spool → partitioned PostgreSQL sensor_readings
+Closed PostgreSQL partitions → verified Parquet files in Oracle Object Storage
+History filters → background CSV.gz job → short-lived Oracle download URL
 ```
 
 > **Direct-Mode constraint:** the Base Station sends to **one** TCP client. Close the G7 Client before starting Node on `6900`
@@ -81,6 +84,54 @@ addresses are stored by the application and are not environment variables.
 
 `GET /health` (public) · `POST /api/auth/login` · `GET /api/sensors` · `GET/PUT /api/sensors/:id/config` ·
 `GET /api/sensors/:id/history` · `GET /api/alarms` · `GET /api/system/status` · `WS /ws`
+
+`GET /api/readings/availability` · `POST/GET /api/readings/exports` ·
+`GET /api/readings/exports/:id/download` · `GET /api/alarms/export.csv`
+
+### Sensor history and Oracle Object Storage
+
+The backend now creates a separate, daily partitioned `sensor_readings` table in
+PostgreSQL. Each sensor present in a received G7 frame gets one raw reading row;
+the carried-forward live snapshot is never inserted as new data. It stores both
+the server receipt time in UTC and the unmodified G7 `TM` value. The base
+station's timezone has not been established, so `TM` is not treated as a UTC
+timestamp. History begins when this server-side capture is deployed; the old
+browser-only trend cannot be backfilled from the application database.
+The application database role needs permission to create the initial history
+tables and new daily partitions. Apply the existing base schema first; do not
+run `prisma db push` after history capture is enabled, because Prisma cannot
+create this partitioned table from its model alone.
+
+Set `DATA_DIR` to a persistent disk path. Incoming frames are fsynced to a
+bounded local write-ahead log before PostgreSQL processing. A failed database
+write leaves the frame pending for retry and shows `degraded` in `/health`.
+This protects against process restarts and temporary database outages on the
+same host. It cannot recover measurements the base station never delivered or
+a failed host disk; confirm whether the hardware supports replay/buffering if
+end-to-end losslessness is required.
+
+Create a **private Standard-tier** bucket in Oracle Object Storage and an OCI
+Customer Secret Key with object read/write permissions. Set all five
+`OCI_OBJECT_*` values in `backend/.env` (namespace, region, bucket, access key,
+secret key). The backend uses Oracle's S3 compatibility endpoint. Leave them
+all unset only during a staged rollout: PostgreSQL capture still works, but
+archiving and the History CSV button are disabled. Do not put credentials in
+frontend environment variables.
+
+`SENSOR_HOT_DAYS` defaults to 90. After that period, a closed UTC day is
+written in bounded Parquet files, uploaded to Oracle, downloaded and checksum
+verified, then recorded in the archive manifest. Only then is its PostgreSQL
+partition removed. Archive failure keeps the database partition. No lifecycle
+rule should delete `sensor-history/` objects while users require all-time
+history. Generated `sensor-exports/` CSV.gz files are removed after
+`SENSOR_EXPORT_TTL_DAYS` (7 by default); users receive 5-minute signed
+download URLs. Monitor database disk, spool bytes, archive errors, and export
+failures in production.
+
+The app is installable as a PWA over HTTPS. Its service worker caches the app
+shell and static assets, not authenticated API responses or live readings.
+Generate icon PNGs after editing the thermometer SVG with `npm run icons` in
+`frontend`, then run the normal frontend build.
 
 ## Production (Windows)
 

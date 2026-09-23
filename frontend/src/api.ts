@@ -27,4 +27,33 @@ export const api = {
   alarms: () => req<{ active: { id: string; sensorId: string; kind: string; message: string; startedAt: string }[]; history: unknown[] }>('/api/alarms'),
   status: () => req<Record<string, unknown>>('/api/system/status'),
   history: (id: string) => req<{ kind: string; value?: number; startedAt: string; recoveredAt?: string }[]>(`/api/sensors/${id}/history`),
+  readingAvailability: (sensorIds: string[]) => req<{ first: string | null; last: string | null; archiveConfigured: boolean; hotDays: number; exportTtlDays: number }>(`/api/readings/availability?sensorIds=${encodeURIComponent(sensorIds.join(','))}`),
+  readingExports: () => req<ReadingExport[]>('/api/readings/exports'),
+  createReadingExport: (body: { sensorIds: string[]; from?: string; to?: string }) => req<ReadingExport>('/api/readings/exports', { method: 'POST', body: JSON.stringify(body) }),
+  readingExportDownload: (id: string) => req<{ url: string }>(`/api/readings/exports/${id}/download`),
 };
+
+export async function downloadAlarmHistory(): Promise<void> {
+  const token = localStorage.getItem('g7_token');
+  const response = await fetch(`${BACKEND_URL}/api/alarms/export.csv`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) throw new Error('Could not download alarm history');
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'alarm-history.csv';
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+export interface ReadingExport {
+  id: string;
+  sensorIds: string[];
+  from: string;
+  to: string;
+  status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+  rowCount: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

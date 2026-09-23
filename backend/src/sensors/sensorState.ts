@@ -1,6 +1,7 @@
 import type { NormalizedState } from './sensorService.js';
 
-// In-memory live readings; history persisted via DB/file store.
+// In-memory live readings. Raw history is persisted by ReadingsStore when
+// PostgreSQL is configured; FileStore does not contain telemetry history.
 export class SensorState {
   private state: NormalizedState | null = null;
 

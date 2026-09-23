@@ -14,7 +14,7 @@ export interface TcpServerStats {
 }
 
 export interface G7TcpCallbacks {
-  onMessage: (raw: string, remote: string) => void;
+  onMessage: (raw: string, remote: string) => void | Promise<void>;
   onParserError?: (err: Error, raw: string) => void;
 }
 
@@ -41,25 +41,33 @@ export class G7TcpServer {
       const framer = new G7StreamBuffer(this.opts);
       socket.setEncoding('utf8');
       socket.on('data', (chunk) => {
-        let frames: string[];
-        try {
-          frames = framer.push(chunk.toString());
-        } catch (err) {
-          this.parserErrors++;
-          logger.warn({ err, remote }, 'framer error');
-          return;
-        }
-        for (const raw of frames) {
-          this.totalMessages++;
-          this.lastG7MessageAt = new Date().toISOString();
-          logger.debug({ remote, len: raw.length }, 'G7 message received');
+        socket.pause();
+        void (async () => {
+          let frames: string[];
           try {
-            this.cb.onMessage(raw, remote);
+            frames = framer.push(chunk.toString());
           } catch (err) {
             this.parserErrors++;
-            this.cb.onParserError?.(err as Error, raw);
+            logger.warn({ err, remote }, 'framer error');
+            socket.resume();
+            return;
           }
-        }
+          for (const raw of frames) {
+            this.totalMessages++;
+            logger.debug({ remote, len: raw.length }, 'G7 message received');
+            try {
+              await this.cb.onMessage(raw, remote);
+              this.lastG7MessageAt = new Date().toISOString();
+            } catch (err) {
+              this.parserErrors++;
+              this.cb.onParserError?.(err as Error, raw);
+              logger.error({ err, remote }, 'G7 frame processing failed; closing connection');
+              socket.destroy();
+              return;
+            }
+          }
+          socket.resume();
+        })();
       });
       socket.on('close', () => {
         this.sockets.delete(socket);
