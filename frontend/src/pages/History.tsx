@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Download, RefreshCw, Thermometer, Database } from 'lucide-react';
+import { CalendarDays, Download, RefreshCw, Thermometer } from 'lucide-react';
 import { api, type ReadingExport } from '../api.js';
 import type { Sensor } from '../types.js';
 import { Button } from '../components/ui/button.js';
@@ -16,8 +16,8 @@ function displayTime(value: string | null | undefined): string {
   return value ? new Date(value).toLocaleString() : 'No saved readings yet';
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : 'Could not load sensor history';
+function errorText(_error: unknown): string {
+  return 'Unable to load sensor history right now. Please try again.';
 }
 
 export function History() {
@@ -150,18 +150,17 @@ export function History() {
                 <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first || !availability.archiveConfigured} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
                 <span className="text-xs text-slate-500">Downloads use compressed CSV (.csv.gz) and remain available for {availability?.exportTtlDays ?? 7} days.</span>
                 {availability && !availability.first && <span role="status" className="w-full text-xs text-amber-800">No saved readings are available for the selected sensors.</span>}
-                {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-amber-800">Oracle Object Storage is not configured in the running backend.</span>}
+                {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-amber-800">Exports are temporarily unavailable. Please try again later.</span>}
                 {availabilityLoading && <span role="status" className="w-full text-xs text-slate-500">Checking saved readings…</span>}
               </div>
             </CardContent>
           </Card>
           <Card className="h-fit border-slate-200 bg-white shadow-sm">
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Database className="size-4 text-teal-700" />Available data</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="size-4 text-teal-700" />Available data</CardTitle></CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div><p className="m-0 text-xs uppercase tracking-wider text-slate-500">First saved reading</p><p className="mt-1 font-medium text-slate-900">{displayTime(availability?.first)}</p></div>
               <div><p className="m-0 text-xs uppercase tracking-wider text-slate-500">Latest saved reading</p><p className="mt-1 font-medium text-slate-900">{displayTime(availability?.last)}</p></div>
-              {!availability?.archiveConfigured && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Readings are saved in PostgreSQL. Oracle Object Storage must be configured before CSV exports are available.</p>}
-              <p className="m-0 text-xs leading-relaxed text-slate-500">History starts when server-side capture was enabled; readings from earlier browser sessions cannot be recovered.</p>
+              <p className="m-0 text-xs leading-relaxed text-slate-500">History is available from the date this feature was enabled. Earlier readings may not be available.</p>
             </CardContent>
           </Card>
         </div>
