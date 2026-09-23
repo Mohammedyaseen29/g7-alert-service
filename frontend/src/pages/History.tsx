@@ -156,7 +156,7 @@ export function History() {
             </CardContent>
           </Card>
           <Card className="h-fit border-slate-200 bg-white shadow-sm">
-          <CardHeader className="flex-row items-center justify-between gap-2"><CardTitle className="flex items-center gap-2 text-base"><Database className="size-4 text-teal-700" />Available data</CardTitle><Button type="button" variant="outline" size="sm" disabled={availabilityLoading} onClick={() => { void refreshAvailability(); }}><RefreshCw className={`mr-2 size-3.5 ${availabilityLoading ? 'animate-spin' : ''}`} />Refresh</Button></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Database className="size-4 text-teal-700" />Available data</CardTitle></CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div><p className="m-0 text-xs uppercase tracking-wider text-slate-500">First saved reading</p><p className="mt-1 font-medium text-slate-900">{displayTime(availability?.first)}</p></div>
               <div><p className="m-0 text-xs uppercase tracking-wider text-slate-500">Latest saved reading</p><p className="mt-1 font-medium text-slate-900">{displayTime(availability?.last)}</p></div>
