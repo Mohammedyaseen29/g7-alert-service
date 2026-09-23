@@ -144,8 +144,8 @@ export function Dashboard() {
         <section className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="m-0 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-700">Pride Monitor · operations</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#0b1f2a] sm:text-4xl">Telemetry matrix</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">A live view of discovered nodes, their observed channels, and the health signals reported by the base station.</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#0b1f2a] sm:text-4xl">Temperature &amp; Humidity</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">Live sensor temperatures, humidity, and device status at a glance.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
             <Badge variant="outline" className={`gap-1.5 rounded-full px-3 py-1.5 font-semibold ${baseStationClass(baseState)}`}>

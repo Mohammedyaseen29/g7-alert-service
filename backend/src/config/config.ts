@@ -23,7 +23,7 @@ const ConfigSchema = z.object({
   ALERT_FROM_NAME: z.string().default('Pride Monitoring'),
   JWT_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
-  JWT_EXPIRES_IN: z.string().default('15m'),
+  JWT_EXPIRES_IN: z.string().default('1d'),
   BCRYPT_ROUNDS: z.coerce.number().default(10),
   DATABASE_URL: z.string().default(''),
   DATA_DIR: z.string().default('./data'),

@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { Activity, BatteryMedium, Download, Droplets, Gauge, Settings2, Thermometer, Wifi, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowLeft, BatteryMedium, Download, Droplets, Gauge, Settings2, Thermometer, Wifi, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Line, LineChart, PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Badge } from '../ui/badge.js';
 import { Button } from '../ui/button.js';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js';
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js';
 import type { AlarmConfig, Sensor } from '../../types.js';
 import { useAuth } from '../../auth.js';
 import {
@@ -229,6 +229,12 @@ export function SensorInspectionSheet({ sensor, history, open, onOpenChange, sta
               <p className="m-0 text-xs leading-relaxed text-slate-500">Health classification: Critical means an active alarm is reported. Warning means the sensor is offline or a configured threshold is exceeded. Normal means neither condition is currently reported.</p>
             </div>
             <div className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-slate-200 bg-[#f8faf9]/95 p-4 shadow-[0_-8px_20px_rgba(11,31,42,0.06)] backdrop-blur sm:flex-row">
+              <SheetClose asChild>
+                <Button type="button" variant="outline" className="gap-2 border-slate-300 bg-white">
+                  <ArrowLeft aria-hidden="true" className="size-4" />
+                  Back to sensors
+                </Button>
+              </SheetClose>
               <Button type="button" variant="outline" className="gap-2 border-slate-300 bg-white" disabled={exportable.length === 0} onClick={() => { if (sensor) downloadSensorReadings(sensor, history); }}>
                 <Download aria-hidden="true" className="size-4" />
                 Export CSV{exportable.length > 0 ? ` · ${exportable.length}` : ''}
