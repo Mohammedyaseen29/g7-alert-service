@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Download, RefreshCw, Thermometer, Database } from 'lucide-react';
 import { api, type ReadingExport } from '../api.js';
 import type { Sensor } from '../types.js';
@@ -29,9 +29,24 @@ export function History() {
   const [availability, setAvailability] = useState<{ first: string | null; last: string | null; archiveConfigured: boolean; hotDays: number; exportTtlDays: number } | null>(null);
   const [jobs, setJobs] = useState<ReadingExport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const availabilityRequest = useRef(0);
+
+  const refreshAvailability = useCallback(async () => {
+    const requestId = ++availabilityRequest.current;
+    setAvailabilityLoading(true);
+    try {
+      const range = await api.readingAvailability(selected);
+      if (requestId === availabilityRequest.current) { setAvailability(range); setError(null); }
+    } catch (cause) {
+      if (requestId === availabilityRequest.current) { setAvailability(null); setError(errorText(cause)); }
+    } finally {
+      if (requestId === availabilityRequest.current) setAvailabilityLoading(false);
+    }
+  }, [selected]);
 
   useEffect(() => {
     let active = true;
@@ -42,13 +57,17 @@ export function History() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => { void refreshAvailability(); }, [refreshAvailability]);
+
   useEffect(() => {
-    let active = true;
-    void api.readingAvailability(selected).then((range) => {
-      if (active) { setAvailability(range); setError(null); }
-    }).catch((cause) => { if (active) setError(errorText(cause)); });
-    return () => { active = false; };
-  }, [selected]);
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') void refreshAvailability(); };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [refreshAvailability]);
 
   useEffect(() => {
     if (!jobs.some((job) => job.status === 'PENDING' || job.status === 'PROCESSING')) return;
@@ -128,13 +147,16 @@ export function History() {
                 <p className="mt-2 text-xs text-slate-500">No boxes selected means all sensors. Current selection: {selectedNames}.</p>
               </div>
               <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
-                <Button type="button" className="gap-2" disabled={submitting || !availability?.first || !availability.archiveConfigured} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
+                <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first || !availability.archiveConfigured} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
                 <span className="text-xs text-slate-500">Downloads use compressed CSV (.csv.gz) and remain available for {availability?.exportTtlDays ?? 7} days.</span>
+                {availability && !availability.first && <span role="status" className="w-full text-xs text-amber-800">No saved readings are available for the selected sensors.</span>}
+                {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-amber-800">Oracle Object Storage is not configured in the running backend.</span>}
+                {availabilityLoading && <span role="status" className="w-full text-xs text-slate-500">Checking saved readings…</span>}
               </div>
             </CardContent>
           </Card>
           <Card className="h-fit border-slate-200 bg-white shadow-sm">
-            <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Database className="size-4 text-teal-700" />Available data</CardTitle></CardHeader>
+          <CardHeader className="flex-row items-center justify-between gap-2"><CardTitle className="flex items-center gap-2 text-base"><Database className="size-4 text-teal-700" />Available data</CardTitle><Button type="button" variant="outline" size="sm" disabled={availabilityLoading} onClick={() => { void refreshAvailability(); }}><RefreshCw className={`mr-2 size-3.5 ${availabilityLoading ? 'animate-spin' : ''}`} />Refresh</Button></CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div><p className="m-0 text-xs uppercase tracking-wider text-slate-500">First saved reading</p><p className="mt-1 font-medium text-slate-900">{displayTime(availability?.first)}</p></div>
               <div><p className="m-0 text-xs uppercase tracking-wider text-slate-500">Latest saved reading</p><p className="mt-1 font-medium text-slate-900">{displayTime(availability?.last)}</p></div>
