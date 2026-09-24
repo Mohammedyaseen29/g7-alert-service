@@ -70,10 +70,11 @@ function filterClass(filter: Filter, active: boolean): string {
   return 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#163848] !hover:text-white';
 }
 
-function statusFilterClass(active: boolean): string {
-  return active
-    ? 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#163848] !hover:text-white'
-    : 'border-slate-200 bg-white text-slate-600 !hover:border-slate-300 !hover:bg-slate-50 !hover:text-slate-900';
+function statusFilterClass(filter: StatusFilter, active: boolean): string {
+  if (!active) return 'border-slate-200 bg-white text-slate-600 !hover:border-slate-300 !hover:bg-slate-50 !hover:text-slate-900';
+  if (filter === 'active') return 'border-teal-700 bg-teal-700 text-white !hover:bg-teal-800 !hover:text-white';
+  if (filter === 'inactive') return 'border-slate-600 bg-slate-600 text-white !hover:bg-slate-700 !hover:text-white';
+  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#061722] !hover:text-white';
 }
 export function Dashboard() {
   const [sensors, setSensors] = useState<Sensor[] | null>(null);
@@ -207,7 +208,7 @@ export function Dashboard() {
                 ['active', 'Active', counts.all - inactiveCount],
                 ['inactive', 'Inactive', inactiveCount],
               ] as const).map(([value, label, count]) => (
-                <Button key={value} ref={statusFilter === value ? statusFilterRef : undefined} type="button" aria-pressed={statusFilter === value} variant="outline" size="sm" className={statusFilterClass(statusFilter === value)} onClick={() => setStatusFilter(value)}>
+                <Button key={value} ref={statusFilter === value ? statusFilterRef : undefined} type="button" aria-pressed={statusFilter === value} variant="outline" size="sm" className={statusFilterClass(value, statusFilter === value)} onClick={() => setStatusFilter(value)}>
                   {label}<span className="ml-1 font-mono text-[10px] opacity-75">{sensors ? count : '—'}</span>
                 </Button>
               ))}
