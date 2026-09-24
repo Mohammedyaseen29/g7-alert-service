@@ -67,7 +67,7 @@ function filterClass(filter: Filter, active: boolean): string {
   if (filter === 'critical') return 'border-rose-600 bg-rose-600 text-white !hover:bg-rose-700 !hover:text-white';
   if (filter === 'warning') return 'border-amber-500 bg-amber-500 text-white !hover:bg-amber-600 !hover:text-white';
   if (filter === 'normal') return 'border-teal-700 bg-teal-700 text-white !hover:bg-teal-800 !hover:text-white';
-  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#163848] !hover:text-white';
+  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#061722] !hover:text-white';
 }
 
 function statusFilterClass(filter: StatusFilter, active: boolean): string {
