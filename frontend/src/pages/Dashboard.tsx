@@ -64,26 +64,26 @@ function countText(value: number | undefined): string {
 
 function filterClass(filter: Filter, active: boolean): string {
   if (!active) {
-    if (filter === 'normal') return 'border-slate-200 bg-white text-slate-600 !hover:border-teal-300 !hover:bg-teal-50 !hover:text-teal-800';
-    if (filter === 'warning') return 'border-slate-200 bg-white text-slate-600 !hover:border-amber-300 !hover:bg-amber-50 !hover:text-amber-800';
-    if (filter === 'critical') return 'border-slate-200 bg-white text-slate-600 !hover:border-rose-300 !hover:bg-rose-50 !hover:text-rose-800';
-    return 'border-slate-200 bg-white text-slate-600 !hover:border-slate-300 !hover:bg-slate-100 !hover:text-slate-900';
+    if (filter === 'normal') return 'border-slate-200 bg-white text-slate-600 hover:!border-teal-300 hover:!bg-teal-50 hover:!text-teal-800';
+    if (filter === 'warning') return 'border-slate-200 bg-white text-slate-600 hover:!border-amber-300 hover:!bg-amber-50 hover:!text-amber-800';
+    if (filter === 'critical') return 'border-slate-200 bg-white text-slate-600 hover:!border-rose-300 hover:!bg-rose-50 hover:!text-rose-800';
+    return 'border-slate-200 bg-white text-slate-600 hover:!border-slate-300 hover:!bg-slate-100 hover:!text-slate-900';
   }
-  if (filter === 'critical') return 'border-rose-600 bg-rose-600 text-white !hover:bg-rose-800 !hover:text-white';
-  if (filter === 'warning') return 'border-amber-500 bg-amber-500 text-white !hover:bg-amber-700 !hover:text-white';
-  if (filter === 'normal') return 'border-teal-700 bg-teal-700 text-white !hover:bg-teal-900 !hover:text-white';
-  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#020b10] !hover:text-white';
+  if (filter === 'critical') return 'border-rose-600 bg-rose-600 text-white hover:!bg-rose-800 hover:!text-white';
+  if (filter === 'warning') return 'border-amber-500 bg-amber-500 text-white hover:!bg-amber-700 hover:!text-white';
+  if (filter === 'normal') return 'border-teal-700 bg-teal-700 text-white hover:!bg-teal-900 hover:!text-white';
+  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white hover:!bg-[#020b10] hover:!text-white';
 }
 
 function statusFilterClass(filter: StatusFilter, active: boolean): string {
   if (!active) {
-    if (filter === 'active') return 'border-slate-200 bg-white text-slate-600 !hover:border-teal-300 !hover:bg-teal-50 !hover:text-teal-800';
-    if (filter === 'inactive') return 'border-slate-200 bg-white text-slate-600 !hover:border-slate-300 !hover:bg-slate-100 !hover:text-slate-800';
-    return 'border-slate-200 bg-white text-slate-600 !hover:border-slate-300 !hover:bg-slate-100 !hover:text-slate-900';
+    if (filter === 'active') return 'border-slate-200 bg-white text-slate-600 hover:!border-teal-300 hover:!bg-teal-50 hover:!text-teal-800';
+    if (filter === 'inactive') return 'border-slate-200 bg-white text-slate-600 hover:!border-slate-300 hover:!bg-slate-100 hover:!text-slate-800';
+    return 'border-slate-200 bg-white text-slate-600 hover:!border-slate-300 hover:!bg-slate-100 hover:!text-slate-900';
   }
-  if (filter === 'active') return 'border-teal-700 bg-teal-700 text-white !hover:bg-teal-900 !hover:text-white';
-  if (filter === 'inactive') return 'border-slate-600 bg-slate-600 text-white !hover:bg-slate-800 !hover:text-white';
-  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#020b10] !hover:text-white';
+  if (filter === 'active') return 'border-teal-700 bg-teal-700 text-white hover:!bg-teal-900 hover:!text-white';
+  if (filter === 'inactive') return 'border-slate-600 bg-slate-600 text-white hover:!bg-slate-800 hover:!text-white';
+  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white hover:!bg-[#020b10] hover:!text-white';
 }
 export function Dashboard() {
   const [sensors, setSensors] = useState<Sensor[] | null>(null);
