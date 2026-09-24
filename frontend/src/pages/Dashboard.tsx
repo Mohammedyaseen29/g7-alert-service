@@ -70,6 +70,11 @@ function filterClass(filter: Filter, active: boolean): string {
   return 'border-[#0b1f2a] bg-[#0b1f2a] text-white hover:bg-[#163848]';
 }
 
+function statusFilterClass(active: boolean): string {
+  return active
+    ? 'border-[#0b1f2a] bg-[#0b1f2a] text-white hover:bg-[#163848]'
+    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900';
+}
 export function Dashboard() {
   const [sensors, setSensors] = useState<Sensor[] | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -189,30 +194,28 @@ export function Dashboard() {
           </div>
         ) : null}
 
-        <section aria-labelledby="filter-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <h2 id="filter-heading" className="m-0 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Find a sensor</h2>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="m-0 text-sm font-semibold text-slate-900">Sensor status</p>
-              <p className="m-0 mt-0.5 text-xs text-slate-500">View all sensors or focus on one status.</p>
-            </div>
-            <div className="inline-flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Sensor status filters">
+        <section aria-labelledby="sensor-list-heading" className="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 id="sensor-list-heading" className="m-0 text-xl font-semibold tracking-tight text-[#0b1f2a]">Sensors</h2>
+            <p className="mt-1 text-sm text-slate-500">{sensors ? `${visibleSensors.length} of ${counts.all} sensors shown` : 'Loading sensor list'}</p>
+          </div>
+          <div className="flex flex-col gap-2 lg:items-end">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Sensor status filters">
+              <span className="mr-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Status</span>
               {([
                 ['all', 'All', counts.all],
                 ['active', 'Active', counts.all - inactiveCount],
                 ['inactive', 'Inactive', inactiveCount],
               ] as const).map(([value, label, count]) => (
-                <button key={value} ref={statusFilter === value ? statusFilterRef : undefined} type="button" aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 ${statusFilter === value ? 'bg-[#0b1f2a] text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>
-                  {label} <span className="ml-1 font-mono text-xs opacity-75">{sensors ? count : '—'}</span>
-                </button>
+                <Button key={value} ref={statusFilter === value ? statusFilterRef : undefined} type="button" aria-pressed={statusFilter === value} variant="outline" size="sm" className={statusFilterClass(statusFilter === value)} onClick={() => setStatusFilter(value)}>
+                  {label}<span className="ml-1 font-mono text-[10px] opacity-75">{sensors ? count : '—'}</span>
+                </Button>
               ))}
             </div>
-          </div>
-          <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="m-0 text-sm font-semibold text-slate-900">Health</p>
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Device health filters">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Device health filters">
+              <span className="mr-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Health</span>
               {([
-                ['all', 'All Devices'],
+                ['all', 'All'],
                 ['normal', 'Normal'],
                 ['warning', 'Warning'],
                 ['critical', 'Critical'],
@@ -223,7 +226,6 @@ export function Dashboard() {
               ))}
             </div>
           </div>
-          <p className="mt-4 text-xs leading-relaxed text-slate-500">To change one sensor, open <strong>Inspect</strong> on its card. Inactive sensors stay configured but their readings are hidden and their alarms are not evaluated.</p>
         </section>
 
         {loading && !sensors ? (
