@@ -63,17 +63,17 @@ function countText(value: number | undefined): string {
 }
 
 function filterClass(filter: Filter, active: boolean): string {
-  if (!active) return 'border-slate-200 bg-white text-slate-600';
-  if (filter === 'critical') return 'border-rose-600 bg-rose-600 text-white hover:bg-rose-700';
-  if (filter === 'warning') return 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600';
-  if (filter === 'normal') return 'border-teal-700 bg-teal-700 text-white hover:bg-teal-800';
-  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white hover:bg-[#163848]';
+  if (!active) return 'border-slate-200 bg-white text-slate-600 !hover:border-slate-300 !hover:bg-slate-50 !hover:text-slate-900';
+  if (filter === 'critical') return 'border-rose-600 bg-rose-600 text-white !hover:bg-rose-700 !hover:text-white';
+  if (filter === 'warning') return 'border-amber-500 bg-amber-500 text-white !hover:bg-amber-600 !hover:text-white';
+  if (filter === 'normal') return 'border-teal-700 bg-teal-700 text-white !hover:bg-teal-800 !hover:text-white';
+  return 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#163848] !hover:text-white';
 }
 
 function statusFilterClass(active: boolean): string {
   return active
-    ? 'border-[#0b1f2a] bg-[#0b1f2a] text-white hover:bg-[#163848]'
-    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900';
+    ? 'border-[#0b1f2a] bg-[#0b1f2a] text-white !hover:bg-[#163848] !hover:text-white'
+    : 'border-slate-200 bg-white text-slate-600 !hover:border-slate-300 !hover:bg-slate-50 !hover:text-slate-900';
 }
 export function Dashboard() {
   const [sensors, setSensors] = useState<Sensor[] | null>(null);
@@ -194,12 +194,12 @@ export function Dashboard() {
           </div>
         ) : null}
 
-        <section aria-labelledby="sensor-list-heading" className="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 id="sensor-list-heading" className="m-0 text-xl font-semibold tracking-tight text-[#0b1f2a]">Sensors</h2>
-            <p className="mt-1 text-sm text-slate-500">{sensors ? `${visibleSensors.length} of ${counts.all} sensors shown` : 'Loading sensor list'}</p>
-          </div>
-          <div className="flex flex-col gap-2 lg:items-end">
+        <section aria-labelledby="sensor-list-heading" className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+            <div>
+              <h2 id="sensor-list-heading" className="m-0 text-xl font-semibold tracking-tight text-[#0b1f2a]">Sensors</h2>
+              <p className="mt-1 text-sm text-slate-500">{sensors ? `${visibleSensors.length} of ${counts.all} sensors shown` : 'Loading sensor list'}</p>
+            </div>
             <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Sensor status filters">
               <span className="mr-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Status</span>
               {([
@@ -212,19 +212,19 @@ export function Dashboard() {
                 </Button>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Device health filters">
-              <span className="mr-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Health</span>
-              {([
-                ['all', 'All'],
-                ['normal', 'Normal'],
-                ['warning', 'Warning'],
-                ['critical', 'Critical'],
-              ] as const).map(([value, label]) => (
-                <Button key={value} type="button" aria-pressed={filter === value} variant="outline" size="sm" className={filterClass(value, filter === value)} onClick={() => setFilter(value)}>
-                  {label}<span className="ml-1 font-mono text-[10px] opacity-75">{sensors ? counts[value] : '—'}</span>
-                </Button>
-              ))}
-            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Device health filters">
+            <span className="mr-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Health</span>
+            {([
+              ['all', 'All'],
+              ['normal', 'Normal'],
+              ['warning', 'Warning'],
+              ['critical', 'Critical'],
+            ] as const).map(([value, label]) => (
+              <Button key={value} type="button" aria-pressed={filter === value} variant="outline" size="sm" className={filterClass(value, filter === value)} onClick={() => setFilter(value)}>
+                {label}<span className="ml-1 font-mono text-[10px] opacity-75">{sensors ? counts[value] : '—'}</span>
+              </Button>
+            ))}
           </div>
         </section>
 
