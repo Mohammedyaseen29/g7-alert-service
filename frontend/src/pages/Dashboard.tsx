@@ -11,6 +11,7 @@ import { useLiveSensors } from '../hooks.js';
 import { recordSensorSamples, sensorHealth, type SensorHistory } from '../lib/telemetry.js';
 
 type Filter = 'all' | 'normal' | 'warning' | 'critical';
+type StatusFilter = 'all' | 'active' | 'inactive';
 
 interface SystemStatus {
   g7?: string;
@@ -75,10 +76,12 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedSensorId, setSelectedSensorId] = useState<string | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const inspectTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const statusFilterRef = useRef<HTMLButtonElement | null>(null);
   const historyRef = useRef<SensorHistory>({});
   const requestRef = useRef(0);
 
@@ -111,6 +114,13 @@ export function Dashboard() {
 
   const live = useLiveSensors(load);
 
+  const toggleSensorStatus = useCallback(async (sensorId: string) => {
+    const sensor = sensors?.find((item) => item.id === sensorId);
+    if (!sensor) return;
+    await api.setSensorStatus(sensorId, !sensor.active);
+    await load();
+  }, [load, sensors]);
+
   useEffect(() => {
     if (!sensors) return;
     if (recordSensorSamples(historyRef.current, sensors)) setHistoryVersion((version) => version + 1);
@@ -123,8 +133,15 @@ export function Dashboard() {
   }, [sensors]);
 
   const visibleSensors = useMemo(() => (
-    (sensors ?? []).filter((sensor) => filter === 'all' || sensorHealth(sensor) === filter)
-  ), [filter, sensors]);
+    (sensors ?? []).filter((sensor) => (
+      (filter === 'all' || sensorHealth(sensor) === filter)
+      && (statusFilter === 'all' || (statusFilter === 'active') === (sensor.active !== false))
+    ))
+  ), [filter, sensors, statusFilter]);
+
+  const inactiveCount = useMemo(() => (
+    (sensors ?? []).filter((sensor) => sensor.active === false).length
+  ), [sensors]);
 
   const selectedSensor = useMemo(
     () => (selectedSensorId ? sensors?.find((sensor) => sensor.id === selectedSensorId) ?? null : null),
@@ -172,12 +189,27 @@ export function Dashboard() {
           </div>
         ) : null}
 
-        <section aria-labelledby="filter-heading">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+        <section aria-labelledby="filter-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <h2 id="filter-heading" className="m-0 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Find a sensor</h2>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 id="filter-heading" className="m-0 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Filter devices</h2>
-              <p className="mt-1 text-xs text-slate-500">Classification is derived from the current telemetry response.</p>
+              <p className="m-0 text-sm font-semibold text-slate-900">Sensor status</p>
+              <p className="m-0 mt-0.5 text-xs text-slate-500">View all sensors or focus on one status.</p>
             </div>
+            <div className="inline-flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Sensor status filters">
+              {([
+                ['all', 'All', counts.all],
+                ['active', 'Active', counts.all - inactiveCount],
+                ['inactive', 'Inactive', inactiveCount],
+              ] as const).map(([value, label, count]) => (
+                <button key={value} ref={statusFilter === value ? statusFilterRef : undefined} type="button" aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 ${statusFilter === value ? 'bg-[#0b1f2a] text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>
+                  {label} <span className="ml-1 font-mono text-xs opacity-75">{sensors ? count : '—'}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="m-0 text-sm font-semibold text-slate-900">Health</p>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Device health filters">
               {([
                 ['all', 'All Devices'],
@@ -191,7 +223,7 @@ export function Dashboard() {
               ))}
             </div>
           </div>
-          <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500"><span>Critical = active alarm</span><span>Warning = offline or configured threshold exceeded</span><span>Normal = no current warning signal</span></p>
+          <p className="mt-4 text-xs leading-relaxed text-slate-500">To change one sensor, open <strong>Inspect</strong> on its card. Inactive sensors stay configured but their readings are hidden and their alarms are not evaluated.</p>
         </section>
 
         {loading && !sensors ? (
@@ -201,15 +233,15 @@ export function Dashboard() {
         ) : sensors?.length === 0 ? (
           <Card className="border-slate-200 bg-white shadow-sm"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><Radio aria-hidden="true" className="size-8 text-slate-300" /><h2 className="m-0 text-lg font-semibold text-slate-800">No sensors discovered yet</h2><p className="m-0 max-w-lg text-sm leading-relaxed text-slate-500">No valid sensor frame has been observed. Nodes will appear here after the base station sends real telemetry.</p></CardContent></Card>
         ) : visibleSensors.length === 0 ? (
-          <Card className="border-slate-200 bg-white shadow-sm"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><WifiOff aria-hidden="true" className="size-8 text-slate-300" /><h2 className="m-0 text-lg font-semibold text-slate-800">No devices in this filter</h2><p className="m-0 text-sm text-slate-500">No currently returned node matches {filter}.</p></CardContent></Card>
+          <Card className="border-slate-200 bg-white shadow-sm"><CardContent className="flex flex-col items-center gap-3 p-10 text-center"><WifiOff aria-hidden="true" className="size-8 text-slate-300" /><h2 className="m-0 text-lg font-semibold text-slate-800">No sensors match these filters</h2><p className="m-0 text-sm text-slate-500">Try another status or health filter to find your sensor.</p><Button type="button" variant="outline" onClick={() => { setStatusFilter('all'); setFilter('all'); }}>Show all sensors</Button></CardContent></Card>
         ) : (
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Sensor grid">
-            {visibleSensors.map((sensor) => <SensorCard key={sensor.id} sensor={sensor} history={historyRef.current[sensor.id] ?? []} onInspect={(item, trigger) => { inspectTriggerRef.current = trigger; setSelectedSensorId(item.id); }} />)}
+            {visibleSensors.map((sensor) => <SensorCard key={sensor.id} sensor={sensor} active={sensor.active !== false} history={historyRef.current[sensor.id] ?? []} onInspect={(item, trigger) => { inspectTriggerRef.current = trigger; setSelectedSensorId(item.id); }} />)}
           </section>
         )}
       </div>
 
-      <SensorInspectionSheet sensor={selectedSensor} history={selectedSensor ? historyRef.current[selectedSensor.id] ?? [] : []} open={selectedSensor !== null} stale={Boolean(error)} returnFocusRef={inspectTriggerRef} onOpenChange={(open) => { if (!open) setSelectedSensorId(null); }} />
+      <SensorInspectionSheet sensor={selectedSensor} active={selectedSensor?.active !== false} onToggleStatus={() => { if (selectedSensor) void toggleSensorStatus(selectedSensor.id); }} history={selectedSensor ? historyRef.current[selectedSensor.id] ?? [] : []} open={selectedSensor !== null} stale={Boolean(error)} returnFocusRef={inspectTriggerRef} returnFocusFallbackRef={statusFilterRef} onOpenChange={(open) => { if (!open) setSelectedSensorId(null); }} />
     </main>
   );
 }

@@ -12,12 +12,14 @@ export default defineConfig(({ mode }) => {
     injectRegister: null,
     includeAssets: ['temperature-icon.svg', 'apple-touch-icon.png'],
     workbox: {
+      importScripts: ['/push-sw.js'],
       globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
       navigateFallback: '/index.html',
       navigateFallbackDenylist: [/^\/api\//, /^\/health$/, /^\/ws/],
       cleanupOutdatedCaches: true,
       maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
     },
+    devOptions: { enabled: true, type: 'classic' },
     manifest: {
       id: '/', name: 'Pride Monitor', short_name: 'Pride Monitor',
       description: 'Live G7 sensor monitoring, alarms, and history',

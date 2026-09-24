@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { once } from 'node:events';
 import { createGzip } from 'node:zlib';
+import { createWriteStream } from 'node:fs';
 import type { SensorReading } from '@prisma/client';
 import parquet from 'parquetjs-lite';
 import { logger } from '../config/logger.js';
@@ -13,6 +14,7 @@ import { type ArchiveManifest, readParquetRow } from './archive.js';
 import { OracleObjects } from './oracleObjects.js';
 import { ReadingsStore } from './readingsStore.js';
 import { nextUtcDay, utcDay } from './schema.js';
+import { pipeline } from 'node:stream/promises';
 
 const HEADER = ['station_id', 'sensor_id', 'received_at_utc', 'device_time_raw', 'temperature_c', 'temperature_2_c', 'humidity_percent', 'secondary', 'battery_v', 'raw_status', 'raw_fields'];
 
@@ -38,10 +40,9 @@ export class SensorExports {
   private running = false;
   private timer: NodeJS.Timeout | null = null;
 
-  constructor(private readings: ReadingsStore, private objects: OracleObjects) {}
+  constructor(private readings: ReadingsStore, private objects: OracleObjects, private dataDir = './data') {}
 
   async start(): Promise<void> {
-    if (!this.objects.enabled) return;
     // A process restart leaves no active worker. Pending jobs are safe to retry;
     // the object key is deterministic and only DONE jobs are downloadable.
     await this.readings.prisma.sensorExportJob.updateMany({ where: { status: 'PROCESSING' }, data: { status: 'PENDING' } });
@@ -55,7 +56,6 @@ export class SensorExports {
   }
 
   async create(requestedBy: string, sensorIds: string[], from: Date, to: Date) {
-    if (!this.objects.enabled) throw new Error('Oracle Object Storage is not configured');
     if (!(from < to)) throw new Error('End time must be after start time');
     const active = await this.readings.prisma.sensorExportJob.count({ where: { requestedBy, status: { in: ['PENDING', 'PROCESSING'] } } });
     if (active >= 2) throw new Error('Two exports are already being prepared; please wait for one to finish');
@@ -69,23 +69,30 @@ export class SensorExports {
   async downloadUrl(id: string, requestedBy: string): Promise<string | null> {
     const job = await this.readings.prisma.sensorExportJob.findFirst({ where: { id, requestedBy, status: 'DONE' } });
     if (!job?.objectKey) return null;
+    if (job.objectKey.startsWith('local:')) return `/api/readings/exports/${job.id}/file`;
     return this.objects.signedDownload(job.objectKey, `sensor-readings-${job.from.toISOString().slice(0, 10)}-${job.to.toISOString().slice(0, 10)}.csv.gz`);
   }
 
+  async localFile(id: string, requestedBy?: string): Promise<{ path: string; filename: string } | null> {
+    const job = await this.readings.prisma.sensorExportJob.findFirst({ where: { id, ...(requestedBy ? { requestedBy } : {}), status: 'DONE' } });
+    if (!job?.objectKey?.startsWith('local:')) return null;
+    return { path: join(this.dataDir, 'exports', `${id}.csv.gz`), filename: `sensor-readings-${job.from.toISOString().slice(0, 10)}-${job.to.toISOString().slice(0, 10)}.csv.gz` };
+  }
+
   async cleanupExpired(ttlDays: number, now = new Date()): Promise<void> {
-    if (!this.objects.enabled) return;
     const cutoff = new Date(now.getTime() - ttlDays * 86_400_000);
     const oldJobs = await this.readings.prisma.sensorExportJob.findMany({
       where: { status: { in: ['DONE', 'FAILED'] }, updatedAt: { lt: cutoff } }, take: 100,
     });
     for (const job of oldJobs) {
-      if (job.objectKey) await this.objects.delete(job.objectKey);
+      if (job.objectKey?.startsWith('local:')) await rm(join(this.dataDir, 'exports', `${job.id}.csv.gz`), { force: true });
+      else if (job.objectKey) await this.objects.delete(job.objectKey);
       await this.readings.prisma.sensorExportJob.delete({ where: { id: job.id } });
     }
   }
 
   private async processOne(): Promise<void> {
-    if (this.running || !this.objects.enabled) return;
+    if (this.running) return;
     this.running = true;
     try {
       const job = await this.readings.prisma.sensorExportJob.findFirst({ where: { status: 'PENDING' }, orderBy: { createdAt: 'asc' } });
@@ -94,7 +101,7 @@ export class SensorExports {
       if (claim.count === 0) return;
       try {
         const count = await this.generate(job.id, job.sensorIds as string[], job.from, job.to);
-        await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'DONE', objectKey: `sensor-exports/${job.id}.csv.gz`, rowCount: BigInt(count) } });
+        await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'DONE', objectKey: this.objects.enabled ? `sensor-exports/${job.id}.csv.gz` : `local:${job.id}`, rowCount: BigInt(count) } });
       } catch (error) {
         logger.error({ error, jobId: job.id }, 'sensor export failed');
         await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'FAILED', error: 'The export could not be completed. Please retry or contact support.' } });
@@ -111,7 +118,9 @@ export class SensorExports {
     gzip.on('error', () => {});
     plain.pipe(gzip);
     const objectKey = `sensor-exports/${jobId}.csv.gz`;
-    const upload = this.objects.uploadStream(objectKey, gzip, 'application/gzip');
+    const localPath = join(this.dataDir, 'exports', `${jobId}.csv.gz`);
+    if (!this.objects.enabled) await mkdir(join(this.dataDir, 'exports'), { recursive: true });
+    const upload = this.objects.enabled ? this.objects.uploadStream(objectKey, gzip, 'application/gzip') : pipeline(gzip, createWriteStream(localPath));
     let uploadError: unknown = null;
     void upload.catch((error) => { uploadError = error; plain.destroy(error); gzip.destroy(error); });
     const write = async (line: string) => {
@@ -125,7 +134,7 @@ export class SensorExports {
         const rangeStart = new Date(Math.max(day.getTime(), from.getTime()));
         const rangeEnd = new Date(Math.min(nextUtcDay(day).getTime(), to.getTime()));
         const archived = await this.readings.prisma.sensorArchiveDay.findUnique({ where: { day } });
-        if (archived) {
+        if (archived && this.objects.enabled) {
           const manifest = archived.objects as unknown as ArchiveManifest;
           for (const file of manifest.files) {
             const directory = await mkdtemp(join(tmpdir(), 'g7-export-archive-'));

@@ -23,6 +23,7 @@ model Sensor {
   station   Station  @relation(fields: [stationId], references: [id])
   name      String
   type      String
+  active    Boolean  @default(true)
   fieldMap  Json
   config    SensorConfiguration?
   alarm     AlarmConfiguration?
@@ -80,6 +81,20 @@ model AppSettings {
   id                 String   @id @default("default")
   notificationEmails Json     @default("[]")
   updatedAt          DateTime @updatedAt
+}
+
+model PushSubscription {
+  endpoint  String   @id
+  userId    String
+  p256dh    String
+  auth      String
+  alarms    Boolean  @default(true)
+  station   Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 // Raw telemetry is separate from sensor inventory and alarms. Production

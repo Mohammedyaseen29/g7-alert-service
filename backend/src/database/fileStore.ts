@@ -42,11 +42,17 @@ export class FileStore implements AppStore {
   }
   upsertSensor(def: SensorDefinition) {
     const i = this.data.sensors.findIndex((s) => s.id === def.id);
-    if (i >= 0) this.data.sensors[i] = def;
+    if (i >= 0) this.data.sensors[i] = { ...def, active: def.active ?? this.data.sensors[i].active ?? true };
     else {
       this.data.sensors.push(def);
       this.data.alarmConfigs[def.id] = structuredClone(DEFAULT_ALARM_CONFIG);
     }
+    this.save();
+  }
+  setSensorActive(id: string, active: boolean) {
+    const sensor = this.data.sensors.find((item) => item.id === id);
+    if (!sensor) return;
+    sensor.active = active;
     this.save();
   }
   getAlarmConfig(id: string): AlarmConfig {

@@ -18,11 +18,14 @@ import {
 
 interface SensorInspectionSheetProps {
   sensor: Sensor | null;
+  active: boolean;
+  onToggleStatus: () => void;
   history: TelemetrySample[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   stale?: boolean;
   returnFocusRef?: { current: HTMLButtonElement | null };
+  returnFocusFallbackRef?: { current: HTMLButtonElement | null };
 }
 
 function number(value: number | undefined, digits = 2): string {
@@ -156,7 +159,7 @@ function TrendChart({ history }: { history: TelemetrySample[] }) {
   );
 }
 
-export function SensorInspectionSheet({ sensor, history, open, onOpenChange, stale = false, returnFocusRef }: SensorInspectionSheetProps) {
+export function SensorInspectionSheet({ sensor, active, onToggleStatus, history, open, onOpenChange, stale = false, returnFocusRef, returnFocusFallbackRef }: SensorInspectionSheetProps) {
   const { role } = useAuth();
   const canConfigure = role === 'ADMIN' || role === 'OPERATOR';
   const exportable = sensor ? sensorReadingsForExport(sensor, history) : [];
@@ -166,7 +169,10 @@ export function SensorInspectionSheet({ sensor, history, open, onOpenChange, sta
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-y-auto border-slate-200 bg-[#f8faf9] p-0 sm:max-w-xl" onCloseAutoFocus={(event) => { if (returnFocusRef?.current) { event.preventDefault(); returnFocusRef.current.focus(); } }}>
+      <SheetContent side="right" className="w-full overflow-y-auto border-slate-200 bg-[#f8faf9] p-0 sm:max-w-xl" onCloseAutoFocus={(event) => {
+        const target = returnFocusRef?.current?.isConnected ? returnFocusRef.current : returnFocusFallbackRef?.current;
+        if (target) { event.preventDefault(); target.focus(); }
+      }}>
         {sensor ? (
           <div className="min-h-full">
             <SheetHeader className="border-b border-slate-200 bg-[#0b1f2a] px-6 py-6 pr-14 text-white">
@@ -175,7 +181,10 @@ export function SensorInspectionSheet({ sensor, history, open, onOpenChange, sta
                   <SheetTitle className="text-white">{sensor.name || `Sensor ${sensor.id}`}</SheetTitle>
                   <SheetDescription className="mt-1 font-mono text-xs text-slate-300">Sensor ID · {sensor.id}</SheetDescription>
                 </div>
-                <Badge variant="outline" className={`rounded-full bg-white/5 ${healthClass(sensor)}`}>{healthLabel(sensor)}</Badge>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Badge variant="outline" className={`rounded-full ${active ? 'border-teal-300/50 bg-teal-400/15 text-teal-100' : 'border-slate-300/50 bg-slate-400/15 text-slate-100'}`}>{active ? 'Active' : 'Inactive'}</Badge>
+                  <Badge variant="outline" className={`rounded-full bg-white/5 ${healthClass(sensor)}`}>{healthLabel(sensor)}</Badge>
+                </div>
               </div>
               <p className="m-0 flex items-center gap-2 text-xs text-slate-300"><Wifi aria-hidden="true" className="size-3.5" />Last seen {absoluteTime(reading?.lastSeen)}</p>
             </SheetHeader>
@@ -183,6 +192,23 @@ export function SensorInspectionSheet({ sensor, history, open, onOpenChange, sta
             {stale ? <div role="status" className="border-b border-amber-200 bg-amber-50 px-6 py-3 text-xs font-medium text-amber-900">Updates unavailable — showing the last known reading.</div> : null}
 
             <div className="space-y-5 p-6">
+              <section aria-labelledby="sensor-status-heading" className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-4 ${active ? 'border-teal-200 bg-teal-50/70' : 'border-slate-200 bg-white'}`}>
+                <div className="min-w-0">
+                  <h2 id="sensor-status-heading" className="m-0 text-sm font-semibold text-slate-900">Sensor status: {active ? 'Active' : 'Inactive'}</h2>
+                  <p className="m-0 mt-1 text-xs leading-relaxed text-slate-600">Inactive sensors stay registered, but the dashboard hides their readings and stops evaluating their alarms. The sensor itself may continue transmitting to the base station.</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={active}
+                  aria-label={`Sensor status for ${sensor.name || `Sensor ${sensor.id}`}`}
+                  title={active ? 'Mark Inactive' : 'Mark Active'}
+                  onClick={onToggleStatus}
+                  className={`relative h-8 w-14 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 ${active ? 'bg-teal-700' : 'bg-slate-300'}`}
+                >
+                  <span aria-hidden="true" className={`absolute left-1 top-1 size-6 rounded-full bg-white shadow-sm transition-transform ${active ? 'translate-x-6' : ''}`} />
+                </button>
+              </section>
               <section aria-labelledby="temperature-heading">
                 <div className="mb-2 flex items-center gap-2">
                   <Gauge aria-hidden="true" className="size-4 text-teal-700" />
