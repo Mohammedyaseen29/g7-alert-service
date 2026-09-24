@@ -38,6 +38,7 @@ export class PrismaStore implements AppStore {
     const databaseUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
     const prisma = new PrismaClient({ datasources: databaseUrl ? { db: { url: databaseUrl } } : undefined });
     await prisma.$connect();
+    await prisma.$executeRawUnsafe('ALTER TABLE "Sensor" ADD COLUMN IF NOT EXISTS "active" BOOLEAN NOT NULL DEFAULT true');
     await prisma.station.upsert({ where: { id: STATION_ID }, update: {}, create: { id: STATION_ID } });
     const [sensors, users, alarmHistory, notificationLog, settings] = await Promise.all([
       prisma.sensor.findMany({ include: { alarm: true }, orderBy: { id: 'asc' } }),
@@ -48,7 +49,7 @@ export class PrismaStore implements AppStore {
     ]);
 
     const cache: Cache = {
-      sensors: sensors.map((sensor) => ({ id: sensor.id, name: sensor.name, type: sensor.type, fields: sensor.fieldMap as unknown as SensorFieldMap })),
+      sensors: sensors.map((sensor) => ({ id: sensor.id, name: sensor.name, type: sensor.type, active: sensor.active, fields: sensor.fieldMap as unknown as SensorFieldMap })),
       alarmConfigs: Object.fromEntries(sensors.map((sensor) => [sensor.id, sensor.alarm ? sensor.alarm.thresholds as unknown as AlarmConfig : cloneDefaultAlarmConfig()])),
       users: users.map((user) => ({ id: user.id, username: user.username, hash: user.hash, role: user.role })),
       alarmHistory: alarmHistory.map((event) => ({
@@ -87,10 +88,18 @@ export class PrismaStore implements AppStore {
     this.enqueue(async () => {
       await this.prisma.sensor.upsert({
         where: { id: def.id },
-        update: { name: def.name, type: def.type, fieldMap: asJson(def.fields) },
-        create: { id: def.id, stationId: STATION_ID, name: def.name, type: def.type, fieldMap: asJson(def.fields) },
+        update: { name: def.name, type: def.type, fieldMap: asJson(def.fields), ...(def.active === undefined ? {} : { active: def.active }) },
+        create: { id: def.id, stationId: STATION_ID, name: def.name, type: def.type, active: def.active ?? true, fieldMap: asJson(def.fields) },
       });
     });
+  }
+
+  setSensorActive(id: string, active: boolean) {
+    const sensor = this.cache.sensors.find((item) => item.id === id);
+    if (!sensor) return;
+    sensor.active = active;
+    this.touch();
+    this.enqueue(async () => { await this.prisma.sensor.update({ where: { id }, data: { active } }); });
   }
 
   getAlarmConfig(id: string) { return this.cache.alarmConfigs[id] ?? cloneDefaultAlarmConfig(); }

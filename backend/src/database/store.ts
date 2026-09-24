@@ -19,6 +19,7 @@ export interface NotificationLogEntry {
 export interface AppStore {
   getSensors(): SensorDefinition[];
   upsertSensor(def: SensorDefinition): void;
+  setSensorActive(id: string, active: boolean): void;
   getAlarmConfig(id: string): AlarmConfig;
   setAlarmConfig(id: string, cfg: AlarmConfig): void;
   getUsers(): StoredUser[];

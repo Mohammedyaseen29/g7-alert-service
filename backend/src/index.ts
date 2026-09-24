@@ -13,6 +13,9 @@ import { SensorState } from './sensors/sensorState.js';
 import { AlarmEngine } from './alarms/alarmEngine.js';
 import { AlarmConfigSchema } from './alarms/alarmTypes.js';
 import { BrevoEmailProvider } from './notifications/brevoEmailProvider.js';
+import { AlarmNotificationService } from './notifications/alarmNotificationService.js';
+import { PushService, pushSubscriptionSchema } from './notifications/pushService.js';
+import { StationPushMonitor } from './notifications/stationPushMonitor.js';
 import { NotificationConfigSchema } from './notifications/notificationConfig.js';
 import { FileStore } from './database/fileStore.js';
 import { PrismaStore } from './database/prismaStore.js';
@@ -42,10 +45,10 @@ const readings = prismaStore ? new ReadingsStore(prismaStore.prisma) : null;
 if (readings) await ensureReadingsSchema(readings.prisma);
 const ingestSpool = readings ? await IngestSpool.open(cfg.DATA_DIR, cfg.SENSOR_SPOOL_MAX_MB * 1024 * 1024) : null;
 const oracleObjects = new OracleObjects(cfg);
-const sensorExports = readings ? new SensorExports(readings, oracleObjects) : null;
+const sensorExports = readings ? new SensorExports(readings, oracleObjects, cfg.DATA_DIR) : null;
 const sensorArchiver = readings ? new SensorArchiver(readings, oracleObjects, cfg.SENSOR_HOT_DAYS) : null;
 if (sensorExports) await sensorExports.start();
-if (readings && !oracleObjects.enabled) logger.warn('Sensor readings are captured in PostgreSQL; Oracle archival and history CSV exports require OCI_OBJECT_* settings');
+if (readings && !oracleObjects.enabled) logger.warn('Sensor readings and recent CSV exports use PostgreSQL; older Oracle archives require OCI_OBJECT_* settings');
 await seedAdmin(store, cfg.BCRYPT_ROUNDS);
 
 const sensorState = new SensorState();
@@ -59,6 +62,16 @@ const notifier = new BrevoEmailProvider({
   fromEmail: cfg.ALERT_FROM_EMAIL,
   fromName: cfg.ALERT_FROM_NAME,
 }, () => store.getNotificationEmails());
+const notifications = new AlarmNotificationService(engine, notifier, store, {
+  repeatMinutes: cfg.ALARM_REPEAT_MINUTES,
+  recoveryEnabled: cfg.RECOVERY_EMAIL_ENABLED,
+  getBattery: (sensorId) => sensorState.snapshot()?.sensors[sensorId]?.battery,
+});
+const pushService = new PushService(prismaStore?.prisma ?? null, cfg);
+await pushService.init();
+const pushEvent = (kind: 'alarms' | 'station', title: string, body: string, url: '/alarms' | '/', tag: string) => {
+  void pushService.send(kind, { title, body, url, tag }).catch((error) => logger.error({ error }, 'browser push event failed'));
+};
 const bus = new LiveBus();
 const bootAt = new Date().toISOString();
 
@@ -80,30 +93,25 @@ async function processFrame(raw: string, remote: string, receivedAt: string, pac
     const allNew = [...triggered, ...timeouts.triggered];
     const allRec = [...recovered, ...timeouts.recovered];
     store.pushHistory([...allNew, ...allRec]);
-    (async () => {
-      for (const ev of allNew) {
-        const sensorDef = store.getSensors().find((s) => s.id === ev.sensorId);
-        const reading = snapshot.sensors[ev.sensorId];
-        await notifier.sendAlarm(ev, { sensorName: sensorDef?.name, battery: reading?.battery });
-        engine.markNotified(ev.id);
-        store.logNotification({ at: new Date().toISOString(), type: 'alarm', sensorId: ev.sensorId, kind: ev.kind });
-      }
-      if (cfg.RECOVERY_EMAIL_ENABLED) {
-        for (const ev of allRec) {
-          const sensorDef = store.getSensors().find((s) => s.id === ev.sensorId);
-          await notifier.sendRecovery(ev, { sensorName: sensorDef?.name });
-          store.logNotification({ at: new Date().toISOString(), type: 'recovery', sensorId: ev.sensorId, kind: ev.kind });
-        }
-      }
-    })().catch((e) => logger.error({ e }, 'notify error'));
+    for (const alarm of allNew) pushEvent('alarms', `Alarm: Sensor ${alarm.sensorId}`, alarm.message, '/alarms', `alarm-${alarm.sensorId}-${alarm.kind}`);
+    for (const alarm of allRec) pushEvent('alarms', `Recovered: Sensor ${alarm.sensorId}`, alarm.message, '/alarms', `recovered-${alarm.sensorId}-${alarm.kind}`);
+    notifications.queueRecoveries(allRec);
+    void notifications.flush();
     bus.broadcast({ type: 'sensors', at: new Date().toISOString(), snapshot, alarms: allNew });
     logger.debug({ station: msg.stationId, sensors: Object.keys(normalized.sensors) }, 'G7 message processed');
 }
 if (ingestSpool) await ingestSpool.replay((frame) => processFrame(frame.raw, 'spool-replay', frame.receivedAt, frame.packetId));
+const stationMonitor = new StationPushMonitor(cfg.SENSOR_TIMEOUT_SECONDS * 1000, ({ title, body, tag }) => pushEvent('station', title, body, '/', tag));
+const checkStationState = () => {
+  const stats = tcp.stats();
+  stationMonitor.update(stats.connectedBaseStations, stats.lastG7MessageAt);
+};
 const tcp = new G7TcpServer(cfg.G7_HOST, cfg.G7_PORT, { maxMessageBytes: cfg.G7_MAX_MESSAGE_BYTES, maxBufferBytes: cfg.G7_MAX_BUFFER_BYTES }, {
   onMessage: (raw, remote) => ingestSpool
     ? ingestSpool.accept(raw, (frame) => processFrame(frame.raw, remote, frame.receivedAt, frame.packetId))
     : processFrame(raw, remote, new Date().toISOString()),
+  onConnectionChange: () => checkStationState(),
+  onTelemetry: () => checkStationState(),
 });
 
 // ---- Public health (no auth, for service monitors)
@@ -129,16 +137,50 @@ app.post('/api/auth/logout', (_req, res) => res.json({ ok: true }));
 
 const auth = requireAuth(cfg.JWT_SECRET);
 
+app.get('/api/push/config', auth, (_req, res) => res.json({ enabled: pushService.enabled, publicKey: pushService.publicKey }));
+app.get('/api/push/status', auth, async (req, res) => {
+  const endpoint = z.string().max(2048).safeParse(req.query.endpoint);
+  if (!endpoint.success) { res.status(400).json({ error: 'Invalid subscription endpoint' }); return; }
+  const user = (req as unknown as { user: { sub: string } }).user;
+  try { res.json(await pushService.status(user.sub, endpoint.data)); }
+  catch (error) { logger.error({ error }, 'push status failed'); res.status(500).json({ error: 'Could not check push status' }); }
+});
+app.post('/api/push/subscriptions', auth, async (req, res) => {
+  if (!pushService.enabled) { res.status(503).json({ error: 'Push notifications are not configured' }); return; }
+  const parsed = pushSubscriptionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Invalid browser push subscription' }); return; }
+  const user = (req as unknown as { user: { sub: string } }).user;
+  try { await pushService.subscribe(user.sub, parsed.data); res.status(201).json({ subscribed: true }); }
+  catch (error) { logger.error({ error }, 'save push subscription failed'); res.status(500).json({ error: 'Could not save push subscription' }); }
+});
+app.delete('/api/push/subscriptions', auth, async (req, res) => {
+  const endpoint = z.string().max(2048).safeParse(req.body?.endpoint);
+  if (!endpoint.success) { res.status(400).json({ error: 'Invalid subscription endpoint' }); return; }
+  const user = (req as unknown as { user: { sub: string } }).user;
+  try { await pushService.unsubscribe(user.sub, endpoint.data); res.json({ subscribed: false }); }
+  catch (error) { logger.error({ error }, 'remove push subscription failed'); res.status(500).json({ error: 'Could not remove push subscription' }); }
+});
+app.post('/api/push/test', auth, async (req, res) => {
+  if (!pushService.enabled) { res.status(503).json({ error: 'Push notifications are not configured' }); return; }
+  const user = (req as unknown as { user: { sub: string } }).user;
+  try {
+    const result = await pushService.send('alarms', { title: 'Pride Monitor test', body: 'Notifications are ready on this device.', url: '/', tag: 'push-test' }, user.sub);
+    if (!result.attempted) { res.status(404).json({ error: 'No alarm push subscription is enabled for this account' }); return; }
+    if (!result.accepted) { res.status(502).json({ error: 'Browser push service did not accept the test notification' }); return; }
+    res.json({ sent: result.accepted });
+  } catch (error) { logger.error({ error }, 'test push failed'); res.status(500).json({ error: 'Could not send test push' }); }
+});
+
 // ---- Sensors
 app.get('/api/sensors', auth, (_req, res) => {
-  const snap = sensorState.snapshot();
+    const snap = sensorState.snapshot();
   const defs = store.getSensors();
   const now = Date.now();
   res.json(defs.map((d) => {
     const reading = snap?.sensors[d.id] ?? null;
     const online = Boolean(reading && now - Date.parse(reading.lastSeen) <= cfg.SENSOR_TIMEOUT_SECONDS * 1000);
     const activeAlarmCount = [...engine.active.values()].filter((alarm) => alarm.sensorId === d.id).length;
-    return { ...d, reading, online, activeAlarmCount, thresholds: store.getAlarmConfig(d.id) };
+    return { ...d, active: d.active !== false, reading: d.active === false ? null : reading, online: d.active !== false && online, activeAlarmCount: d.active === false ? 0 : activeAlarmCount, thresholds: store.getAlarmConfig(d.id) };
   }));
 });
 app.get('/api/sensors/:id', auth, (req, res) => {
@@ -148,15 +190,30 @@ app.get('/api/sensors/:id', auth, (req, res) => {
     return;
   }
   const snap = sensorState.snapshot();
-  const reading = snap?.sensors[def.id] ?? null;
-  const online = Boolean(reading && Date.now() - Date.parse(reading.lastSeen) <= cfg.SENSOR_TIMEOUT_SECONDS * 1000);
-  res.json({ ...def, reading, online, thresholds: store.getAlarmConfig(def.id), activeAlarms: [...engine.active.values()].filter((a) => a.sensorId === def.id) });
+  const reading = def.active === false ? null : snap?.sensors[def.id] ?? null;
+  const online = def.active !== false && Boolean(reading && Date.now() - Date.parse(reading.lastSeen) <= cfg.SENSOR_TIMEOUT_SECONDS * 1000);
+  res.json({ ...def, active: def.active !== false, reading, online, thresholds: store.getAlarmConfig(def.id), activeAlarms: def.active === false ? [] : [...engine.active.values()].filter((a) => a.sensorId === def.id) });
 });
 app.get('/api/sensors/:id/history', auth, (req, res) => {
   res.json(store.getHistory().filter((h) => h.sensorId === req.params.id).slice(0, 100));
 });
 app.get('/api/sensors/:id/alarms', auth, (req, res) => {
   res.json([...engine.active.values()].filter((a) => a.sensorId === req.params.id));
+});
+app.put('/api/sensors/:id/status', auth, requireRole('ADMIN', 'OPERATOR'), (req, res) => {
+  const parsed = z.object({ active: z.boolean() }).safeParse(req.body);
+  const sensor = store.getSensors().find((item) => item.id === req.params.id);
+  if (!sensor) { res.status(404).json({ error: 'not found' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: 'active must be a boolean' }); return; }
+  store.setSensorActive(sensor.id, parsed.data.active);
+  if (!parsed.data.active) {
+    sensorState.removeSensor(sensor.id);
+    const recovered = engine.suspendSensor(sensor.id);
+    if (recovered.length) {
+      store.pushHistory(recovered);
+    }
+  }
+  res.json({ sensorId: sensor.id, active: parsed.data.active, updatedAt: store.updatedAt });
 });
 
 // ---- Raw sensor history and server-side exports
@@ -175,11 +232,11 @@ app.get('/api/readings/availability', auth, async (req, res) => {
   try {
     const sensorIds = requestedSensorIds(req.query.sensorIds);
     const range = await readings.availability(sensorIds);
-    res.json({ ...range, archiveConfigured: oracleObjects.enabled, hotDays: cfg.SENSOR_HOT_DAYS, exportTtlDays: cfg.SENSOR_EXPORT_TTL_DAYS });
+    res.json({ ...range, archiveConfigured: true, hotDays: cfg.SENSOR_HOT_DAYS, exportTtlDays: cfg.SENSOR_EXPORT_TTL_DAYS });
   } catch (error) { res.status(400).json({ error: String(error) }); }
 });
 app.post('/api/readings/exports', auth, async (req, res) => {
-  if (!sensorExports || !readings || !oracleObjects.enabled) { res.status(503).json({ error: 'Sensor exports require PostgreSQL and Oracle Object Storage' }); return; }
+  if (!sensorExports || !readings) { res.status(503).json({ error: 'Sensor exports require PostgreSQL' }); return; }
   const parsed = z.object({ sensorIds: z.array(z.string()).max(100).default([]), from: z.string().datetime().optional(), to: z.string().datetime().optional() }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid export filters' }); return; }
   try {
@@ -210,6 +267,16 @@ app.get('/api/readings/exports/:id/download', auth, async (req, res) => {
     if (!url) { res.status(404).json({ error: 'Completed export not found' }); return; }
     res.json({ url });
   } catch (error) { logger.error({ error }, 'sign sensor export failed'); res.status(500).json({ error: 'Could not prepare download' }); }
+});
+app.get('/api/readings/exports/:id/file', auth, async (req, res) => {
+  if (!sensorExports) { res.status(503).json({ error: 'Sensor history requires PostgreSQL' }); return; }
+  if (!z.string().uuid().safeParse(req.params.id).success) { res.status(404).end(); return; }
+  try {
+    const user = (req as unknown as { user: { sub: string } }).user;
+    const file = await sensorExports.localFile(req.params.id, user.sub);
+    if (!file) { res.status(404).end(); return; }
+    res.download(file.path, file.filename, (error) => { if (error && !res.headersSent) res.status(404).end(); });
+  } catch (error) { logger.error({ error }, 'download local sensor export failed'); res.status(500).json({ error: 'Could not download export' }); }
 });
 app.get('/api/sensors/:id/config', auth, (req, res) => {
   const def = store.getSensors().find((s) => s.id === req.params.id);
@@ -369,16 +436,21 @@ const cleanupExports = () => { void sensorExports?.cleanupExpired(cfg.SENSOR_EXP
 cleanupExports();
 const exportCleanupTimer = setInterval(cleanupExports, 6 * 60 * 60_000);
 
-setInterval(() => {
+const alarmTimer = setInterval(() => {
+  checkStationState();
   const snap = sensorState.snapshot();
   if (snap) {
     const { triggered, recovered } = engine.checkTimeouts(snap, cfg.SENSOR_TIMEOUT_SECONDS);
     if (triggered.length || recovered.length) {
       store.pushHistory([...triggered, ...recovered]);
       bus.broadcast({ type: 'alarms', triggered, recovered });
+      for (const alarm of triggered) pushEvent('alarms', `Alarm: Sensor ${alarm.sensorId}`, alarm.message, '/alarms', `alarm-${alarm.sensorId}-${alarm.kind}`);
+      for (const alarm of recovered) pushEvent('alarms', `Recovered: Sensor ${alarm.sensorId}`, alarm.message, '/alarms', `recovered-${alarm.sensorId}-${alarm.kind}`);
     }
+    notifications.queueRecoveries(recovered);
+    void notifications.flush();
   }
 }, 15_000);
 
-process.on('SIGINT', async () => { clearInterval(archiveTimer); clearInterval(spoolReplayTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await ingestSpool?.close(); await store.close(); process.exit(0); });
-process.on('SIGTERM', async () => { clearInterval(archiveTimer); clearInterval(spoolReplayTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await ingestSpool?.close(); await store.close(); process.exit(0); });
+process.on('SIGINT', async () => { clearInterval(alarmTimer); clearInterval(archiveTimer); clearInterval(spoolReplayTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await ingestSpool?.close(); await store.close(); process.exit(0); });
+process.on('SIGTERM', async () => { clearInterval(alarmTimer); clearInterval(archiveTimer); clearInterval(spoolReplayTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await ingestSpool?.close(); await store.close(); process.exit(0); });

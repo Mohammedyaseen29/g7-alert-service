@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import { removePushOnLogout } from './api.js';
 
 interface AuthCtx {
   token: string | null;
@@ -15,7 +16,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={{
       token, role,
       login: (t, r) => { localStorage.setItem('g7_token', t); localStorage.setItem('g7_role', r); setToken(t); setRole(r); },
-      logout: () => { localStorage.removeItem('g7_token'); localStorage.removeItem('g7_role'); setToken(null); setRole(null); },
+      logout: () => { if (token) void removePushOnLogout(token); localStorage.removeItem('g7_token'); localStorage.removeItem('g7_role'); setToken(null); setRole(null); },
     }}>
       {children}
     </Ctx.Provider>

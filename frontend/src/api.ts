@@ -19,6 +19,7 @@ export const api = {
     req<{ access: string; user: { username: string; role: string } }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   sensors: () => req<import('./types.js').Sensor[]>('/api/sensors'),
   sensor: (id: string) => req<import('./types.js').Sensor & { activeAlarms: unknown[] }>('/api/sensors/' + id),
+  setSensorStatus: (id: string, active: boolean) => req<{ sensorId: string; active: boolean }>(`/api/sensors/${id}/status`, { method: 'PUT', body: JSON.stringify({ active }) }),
   getConfig: (id: string) => req<Record<string, unknown>>(`/api/sensors/${id}/config`),
   putConfig: (id: string, body: unknown) => req(`/api/sensors/${id}/config`, { method: 'PUT', body: JSON.stringify(body) }),
   putSensorDefinition: (id: string, body: { name: string; secondaryRole: 'unclassified' | 'humidity' | 'temperature2' }) => req(`/api/sensors/${id}/definition`, { method: 'PUT', body: JSON.stringify(body) }),
@@ -31,7 +32,26 @@ export const api = {
   readingExports: () => req<ReadingExport[]>('/api/readings/exports'),
   createReadingExport: (body: { sensorIds: string[]; from?: string; to?: string }) => req<ReadingExport>('/api/readings/exports', { method: 'POST', body: JSON.stringify(body) }),
   readingExportDownload: (id: string) => req<{ url: string }>(`/api/readings/exports/${id}/download`),
+  pushConfig: () => req<{ enabled: boolean; publicKey: string }>('/api/push/config'),
+  pushStatus: (endpoint: string) => req<{ subscribed: boolean; alarms: boolean; station: boolean }>(`/api/push/status?endpoint=${encodeURIComponent(endpoint)}`),
+  savePushSubscription: (subscription: PushSubscriptionJSON & { alarms: boolean; station: boolean }) =>
+    req<{ subscribed: boolean }>('/api/push/subscriptions', { method: 'POST', body: JSON.stringify(subscription) }),
+  removePushSubscription: (endpoint: string) => req<{ subscribed: boolean }>('/api/push/subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint }) }),
+  testPush: () => req<{ sent: boolean }>('/api/push/test', { method: 'POST' }),
 };
+
+export async function removePushOnLogout(token: string): Promise<void> {
+  if (!('serviceWorker' in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return;
+  await fetch(`${BACKEND_URL}/api/push/subscriptions`, {
+    method: 'DELETE', keepalive: true,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+  await subscription.unsubscribe();
+}
 
 export async function downloadAlarmHistory(): Promise<void> {
   const token = localStorage.getItem('g7_token');
@@ -44,6 +64,23 @@ export async function downloadAlarmHistory(): Promise<void> {
   link.download = 'alarm-history.csv';
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+export async function downloadReadingExport(id: string): Promise<void> {
+  const { url } = await api.readingExportDownload(id);
+  if (!url.startsWith('/api/readings/exports/')) {
+    window.location.assign(url);
+    return;
+  }
+  const token = localStorage.getItem('g7_token');
+  const response = await fetch(`${BACKEND_URL}${url}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) throw new Error('Could not download sensor readings');
+  const blobUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = 'sensor-readings.csv.gz';
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }
 
 export interface ReadingExport {

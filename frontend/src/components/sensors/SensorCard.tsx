@@ -21,6 +21,7 @@ import { sensorHealth, temperatureTrend, thresholdBreaches, type SensorHistory }
 
 interface SensorCardProps {
   sensor: Sensor;
+  active: boolean;
   history: SensorHistory[string];
   onInspect: (sensor: Sensor, trigger: HTMLButtonElement) => void;
 }
@@ -55,7 +56,7 @@ function prominentChannel(reading: NonNullable<Sensor['reading']>): { label: str
   return null;
 }
 
-export function SensorCard({ sensor, history, onInspect }: SensorCardProps) {
+export function SensorCard({ sensor, active, history, onInspect }: SensorCardProps) {
   const [reduceMotion, setReduceMotion] = useState(false);
   const health = sensorHealth(sensor);
   const trend = temperatureTrend(history);
@@ -87,10 +88,16 @@ export function SensorCard({ sensor, history, onInspect }: SensorCardProps) {
             </CardDescription>
             <CardTitle className="mt-1 truncate text-lg text-slate-950">{sensor.name || `Sensor ${sensor.id}`}</CardTitle>
           </div>
-          <Badge variant="outline" className={`shrink-0 gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClass}`}>
-            <StatusIcon aria-hidden="true" className="size-3.5" />
-            {health === 'critical' ? 'Critical' : health === 'warning' ? 'Warning' : 'Normal'}
-          </Badge>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Badge variant="outline" className={`gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${active ? 'border-teal-200 bg-teal-50 text-teal-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+              <span aria-hidden="true" className={`size-1.5 rounded-full ${active ? 'bg-teal-600' : 'bg-slate-400'}`} />
+              {active ? 'Active' : 'Inactive'}
+            </Badge>
+            <Badge variant="outline" className={`gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClass}`}>
+              <StatusIcon aria-hidden="true" className="size-3.5" />
+              {health === 'critical' ? 'Critical' : health === 'warning' ? 'Warning' : 'Normal'}
+            </Badge>
+          </div>
         </div>
         <p className="m-0 text-xs text-slate-500">{healthReason(sensor)}</p>
       </CardHeader>

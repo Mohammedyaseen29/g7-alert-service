@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Download, RefreshCw, Thermometer } from 'lucide-react';
-import { api, type ReadingExport } from '../api.js';
+import { api, downloadReadingExport, type ReadingExport } from '../api.js';
 import type { Sensor } from '../types.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -108,8 +108,7 @@ export function History() {
 
   const download = async (id: string) => {
     try {
-      const { url } = await api.readingExportDownload(id);
-      window.location.assign(url);
+      await downloadReadingExport(id);
     } catch (cause) { setError(errorText(cause)); }
   };
 
@@ -150,7 +149,7 @@ export function History() {
                 <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first || !availability.archiveConfigured} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
                 <span className="text-xs text-slate-500">Downloads use compressed CSV (.csv.gz) and remain available for {availability?.exportTtlDays ?? 7} days.</span>
                 {availability && !availability.first && <span role="status" className="w-full text-xs text-amber-800">No saved readings are available for the selected sensors.</span>}
-                {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-amber-800">Exports are temporarily unavailable. Please try again later.</span>}
+                {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-slate-500">Older archived days need Oracle archive storage; current saved readings can still be exported.</span>}
                 {availabilityLoading && <span role="status" className="w-full text-xs text-slate-500">Checking saved readings…</span>}
               </div>
             </CardContent>

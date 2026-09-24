@@ -32,38 +32,42 @@ export class BrevoEmailProvider implements NotificationProvider {
     }
   }
 
-  async sendAlarm(alert: AlarmEvent, context: { sensorName?: string; battery?: number }): Promise<void> {
+  async sendAlarm(alert: AlarmEvent, context: { sensorName?: string; battery?: number }): Promise<boolean> {
     if (!this.opts.enabled || !this.tx) {
       logger.warn({ sensor: alert.sensorId, kind: alert.kind, value: alert.value, threshold: alert.threshold }, `[ALERT] ${alert.message} (email disabled)`);
-      return;
+      return false;
     }
     const to = this.recipients();
     if (to.length === 0) {
       logger.warn('Email is enabled but no notification recipients are configured; skipping');
-      return;
+      return false;
     }
-    await this.tx.sendMail({
+    const result = await this.tx.sendMail({
       from: `"${this.opts.fromName}" <${this.opts.fromEmail}>`,
       to,
       subject: alarmSubject(alert),
       html: alarmHtml(alert, { ...context, stationId: alert.stationId }),
     });
+    if ((result.rejected?.length ?? 0) > 0 || (result.accepted?.length ?? 0) !== to.length) throw new Error('SMTP did not accept every alarm recipient');
     logger.info({ sensor: alert.sensorId, kind: alert.kind }, 'alarm email sent');
+    return true;
   }
 
-  async sendRecovery(alert: AlarmEvent, context: { sensorName?: string }): Promise<void> {
+  async sendRecovery(alert: AlarmEvent, context: { sensorName?: string }): Promise<boolean> {
     if (!this.opts.enabled || !this.tx) {
       logger.info({ sensor: alert.sensorId, kind: alert.kind }, `[RECOVERY] ${alert.message} (email disabled)`);
-      return;
+      return false;
     }
     const to = this.recipients();
-    if (to.length === 0) return;
-    await this.tx.sendMail({
+    if (to.length === 0) return false;
+    const result = await this.tx.sendMail({
       from: `"${this.opts.fromName}" <${this.opts.fromEmail}>`,
       to,
       subject: recoverySubject(alert),
       html: recoveryHtml(alert, { ...context, stationId: alert.stationId }),
     });
+    if ((result.rejected?.length ?? 0) > 0 || (result.accepted?.length ?? 0) !== to.length) throw new Error('SMTP did not accept every recovery recipient');
     logger.info({ sensor: alert.sensorId, kind: alert.kind }, 'recovery email sent');
+    return true;
   }
 }

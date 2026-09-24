@@ -20,4 +20,10 @@ export class SensorState {
   snapshot(): NormalizedState | null {
     return this.state;
   }
+
+  removeSensor(id: string): void {
+    if (!this.state) return;
+    const { [id]: _removed, ...sensors } = this.state.sensors;
+    this.state = { ...this.state, sensors };
+  }
 }

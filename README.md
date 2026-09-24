@@ -21,6 +21,7 @@ Frontend validation: run `npm test` and `npm run build` from `frontend`.
 ```
 Sensors →(RF)→ Base Station →(TCP)→ Node backend → Parser → State → Alarms → Email
 React PWA → REST/WS → Node backend → State / Config / DB
+Browser subscription → PostgreSQL → Web Push → PWA service worker → device notification
 G7 frames → fsynced local spool → partitioned PostgreSQL sensor_readings
 Closed PostgreSQL partitions → verified Parquet files in Oracle Object Storage
 History filters → background CSV.gz job → short-lived Oracle download URL
@@ -34,6 +35,12 @@ History filters → background CSV.gz job → short-lived Oracle download URL
 - Node.js 22 or later
 - A PostgreSQL database (Supabase PostgreSQL is supported)
 - Optional: a configured email sender for alarm delivery
+
+## PWA push notifications
+
+Set `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, and `WEB_PUSH_SUBJECT` in the backend environment. Generate a VAPID key pair once with `npx web-push generate-vapid-keys`. Keep the same key pair across restarts and deployments, because replacing it invalidates existing browser subscriptions. Push subscriptions are stored in PostgreSQL.
+
+Open the PWA from `https://` or `http://localhost`, sign in, then use **Settings → PWA notifications on this device → Enable on this device**. Each browser/device must opt in. The Settings page also has alarm and base-station choices, a test notification, and a disable action. The service worker displays notifications even when the PWA is closed. Alarm starts and recoveries, station disconnects and reconnects, and stalled or resumed reporting are covered.
 
 ## Quick start
 

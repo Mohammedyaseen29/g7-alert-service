@@ -11,6 +11,7 @@ export interface Sensor {
   id: string;
   name: string;
   type: string;
+  active?: boolean;
   fields: Record<string, string>;
   reading: SensorReading | null;
   thresholds?: AlarmConfig;

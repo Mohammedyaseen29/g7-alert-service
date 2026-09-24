@@ -14,6 +14,7 @@ export interface SensorDefinition {
   name: string;
   type: string; // temperature | temperature_humidity_relay | dual_temperature ...
   fields: SensorFieldMap;
+  active?: boolean;
 }
 
 export interface NormalizedSensor {
@@ -90,6 +91,7 @@ export function normalizeMessage(msg: G7ParsedMessage, defs: SensorDefinition[],
     const rawStatus = def.fields.status ? msg.fields[def.fields.status] : undefined;
     const seen = t !== undefined || t2 !== undefined || h !== undefined || secondary !== undefined || b !== undefined || rawStatus !== undefined;
     if (!seen) continue; // sensor absent from this frame
+    if (def.active === false) continue;
     sensors[def.id] = { lastSeen: now, ...(t !== undefined ? { temperature: t } : {}), ...(t2 !== undefined ? { temperature2: t2 } : {}), ...(h !== undefined ? { humidity: h } : {}), ...(secondary !== undefined ? { secondary } : {}), ...(b !== undefined ? { battery: b } : {}), ...(rawStatus !== undefined ? { rawStatus } : {}) };
   }
   return { stationId: msg.stationId, sensors, lastMessageAt: now, rawMessage: msg.rawMessage };

@@ -156,4 +156,21 @@ export class AlarmEngine {
       }
     }
   }
+
+  suspendSensor(sensorId: string): AlarmEvent[] {
+    const recovered: AlarmEvent[] = [];
+    const iso = new Date(this.tnow()).toISOString();
+    for (const [k, state] of this.states) {
+      if (!k.startsWith(`${sensorId}:`)) continue;
+      if (state.lifecycle === 'ALARM' && state.activeEvent) {
+        const event = { ...state.activeEvent, lifecycle: 'RECOVERED' as AlarmLifecycle, recoveredAt: iso };
+        this.active.delete(k);
+        const index = this.history.findIndex((item) => item.id === state.activeEvent!.id);
+        if (index >= 0) this.history[index] = event;
+        recovered.push(event);
+      }
+      this.states.delete(k);
+    }
+    return recovered;
+  }
 }

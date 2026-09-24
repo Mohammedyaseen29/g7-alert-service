@@ -16,6 +16,8 @@ export interface TcpServerStats {
 export interface G7TcpCallbacks {
   onMessage: (raw: string, remote: string) => void | Promise<void>;
   onParserError?: (err: Error, raw: string) => void;
+  onConnectionChange?: (connected: number) => void;
+  onTelemetry?: () => void;
 }
 
 export class G7TcpServer {
@@ -38,6 +40,7 @@ export class G7TcpServer {
       const remote = `${socket.remoteAddress}:${socket.remotePort}`;
       logger.info({ remote }, 'G7 base station connected');
       this.sockets.add(socket);
+      this.cb.onConnectionChange?.(this.sockets.size);
       const framer = new G7StreamBuffer(this.opts);
       socket.setEncoding('utf8');
       socket.on('data', (chunk) => {
@@ -58,6 +61,7 @@ export class G7TcpServer {
             try {
               await this.cb.onMessage(raw, remote);
               this.lastG7MessageAt = new Date().toISOString();
+              this.cb.onTelemetry?.();
             } catch (err) {
               this.parserErrors++;
               this.cb.onParserError?.(err as Error, raw);
@@ -71,6 +75,7 @@ export class G7TcpServer {
       });
       socket.on('close', () => {
         this.sockets.delete(socket);
+        this.cb.onConnectionChange?.(this.sockets.size);
         logger.info({ remote }, 'G7 base station disconnected');
       });
       socket.on('error', (err) => {
