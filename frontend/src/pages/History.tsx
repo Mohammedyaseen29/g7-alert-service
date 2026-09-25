@@ -107,8 +107,10 @@ export function History() {
   };
 
   const download = async (id: string) => {
+    const job = jobs.find((item) => item.id === id);
+    if (!job) return;
     try {
-      await downloadReadingExport(id);
+      await downloadReadingExport(job);
     } catch (cause) { setError(errorText(cause)); }
   };
 
@@ -147,7 +149,7 @@ export function History() {
               </div>
               <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
                 <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first || !availability.archiveConfigured} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
-                <span className="text-xs text-slate-500">Downloads use compressed CSV (.csv.gz) and remain available for {availability?.exportTtlDays ?? 7} days.</span>
+                <span className="text-xs text-slate-500">Downloads are CSV files and remain available for {availability?.exportTtlDays ?? 7} days.</span>
                 {availability && !availability.first && <span role="status" className="w-full text-xs text-amber-800">No saved readings are available for the selected sensors.</span>}
                 {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-slate-500">Older archived days need Oracle archive storage; current saved readings can still be exported.</span>}
                 {availabilityLoading && <span role="status" className="w-full text-xs text-slate-500">Checking saved readings…</span>}

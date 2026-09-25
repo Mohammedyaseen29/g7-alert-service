@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PassThrough } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
 import { once } from 'node:events';
 import { createGzip } from 'node:zlib';
 import { createWriteStream } from 'node:fs';
@@ -69,14 +69,23 @@ export class SensorExports {
   async downloadUrl(id: string, requestedBy: string): Promise<string | null> {
     const job = await this.readings.prisma.sensorExportJob.findFirst({ where: { id, requestedBy, status: 'DONE' } });
     if (!job?.objectKey) return null;
-    if (job.objectKey.startsWith('local:')) return `/api/readings/exports/${job.id}/file`;
-    return this.objects.signedDownload(job.objectKey, `sensor-readings-${job.from.toISOString().slice(0, 10)}-${job.to.toISOString().slice(0, 10)}.csv.gz`);
+    return `/api/readings/exports/${job.id}/file`;
   }
 
-  async localFile(id: string, requestedBy?: string): Promise<{ path: string; filename: string } | null> {
-    const job = await this.readings.prisma.sensorExportJob.findFirst({ where: { id, ...(requestedBy ? { requestedBy } : {}), status: 'DONE' } });
-    if (!job?.objectKey?.startsWith('local:')) return null;
-    return { path: join(this.dataDir, 'exports', `${id}.csv.gz`), filename: `sensor-readings-${job.from.toISOString().slice(0, 10)}-${job.to.toISOString().slice(0, 10)}.csv.gz` };
+  async openDownload(id: string, requestedBy: string): Promise<{ source: Readable; filename: string } | null> {
+    const job = await this.readings.prisma.sensorExportJob.findFirst({ where: { id, requestedBy, status: 'DONE' } });
+    if (!job?.objectKey) return null;
+    const filename = `sensor-readings-${job.from.toISOString().slice(0, 10)}-${job.to.toISOString().slice(0, 10)}.csv`;
+    if (job.objectKey.startsWith('local:')) {
+      const path = join(this.dataDir, 'exports', `${job.id}.csv.gz`);
+      try { await stat(path); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+        throw error;
+      }
+      return { source: createReadStream(path), filename };
+    }
+    return { source: await this.objects.readStream(job.objectKey), filename };
   }
 
   async cleanupExpired(ttlDays: number, now = new Date()): Promise<void> {

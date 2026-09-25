@@ -66,19 +66,30 @@ export async function downloadAlarmHistory(): Promise<void> {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-export async function downloadReadingExport(id: string): Promise<void> {
-  const { url } = await api.readingExportDownload(id);
-  if (!url.startsWith('/api/readings/exports/')) {
-    window.location.assign(url);
-    return;
+type CsvFileHandle = { createWritable: () => Promise<WritableStream<Uint8Array>> };
+type CsvPickerWindow = Window & { showSaveFilePicker?: (options: { suggestedName: string; types: { description: string; accept: Record<string, string[]> }[] }) => Promise<CsvFileHandle> };
+
+export async function downloadReadingExport(job: ReadingExport): Promise<void> {
+  const filename = `sensor-readings-${job.from.slice(0, 10)}-${job.to.slice(0, 10)}.csv`;
+  const picker = (window as CsvPickerWindow).showSaveFilePicker;
+  let fileHandle: CsvFileHandle | undefined;
+  if (picker) {
+    try { fileHandle = await picker.call(window, { suggestedName: filename, types: [{ description: 'CSV files', accept: { 'text/csv': ['.csv'] } }] }); }
+    catch (error) { if (error instanceof DOMException && error.name === 'AbortError') return; throw error; }
   }
+  const { url } = await api.readingExportDownload(job.id);
+  if (url !== `/api/readings/exports/${job.id}/file`) throw new Error('Unexpected download location');
   const token = localStorage.getItem('g7_token');
   const response = await fetch(`${BACKEND_URL}${url}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!response.ok) throw new Error('Could not download sensor readings');
+  if (fileHandle && response.body) {
+    await response.body.pipeTo(await fileHandle.createWritable());
+    return;
+  }
   const blobUrl = URL.createObjectURL(await response.blob());
   const link = document.createElement('a');
   link.href = blobUrl;
-  link.download = 'sensor-readings.csv.gz';
+  link.download = filename;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }

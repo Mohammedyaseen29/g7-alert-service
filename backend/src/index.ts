@@ -4,6 +4,8 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { pipeline } from 'node:stream/promises';
+import { createGunzip } from 'node:zlib';
 import { loadConfig } from './config/config.js';
 import { logger } from './config/logger.js';
 import { G7TcpServer } from './tcp/g7TcpServer.js';
@@ -273,10 +275,19 @@ app.get('/api/readings/exports/:id/file', auth, async (req, res) => {
   if (!z.string().uuid().safeParse(req.params.id).success) { res.status(404).end(); return; }
   try {
     const user = (req as unknown as { user: { sub: string } }).user;
-    const file = await sensorExports.localFile(req.params.id, user.sub);
+    const file = await sensorExports.openDownload(req.params.id, user.sub);
     if (!file) { res.status(404).end(); return; }
-    res.download(file.path, file.filename, (error) => { if (error && !res.headersSent) res.status(404).end(); });
-  } catch (error) { logger.error({ error }, 'download local sensor export failed'); res.status(500).json({ error: 'Could not download export' }); }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    await pipeline(file.source, createGunzip(), res);
+  } catch (error) {
+    if (res.destroyed) return;
+    logger.error({ error }, 'download sensor export failed');
+    if (res.headersSent) res.destroy();
+    else res.status(500).json({ error: 'Could not download export' });
+  }
 });
 app.get('/api/sensors/:id/config', auth, (req, res) => {
   const def = store.getSensors().find((s) => s.id === req.params.id);

@@ -59,9 +59,13 @@ export class OracleObjects {
   }
 
   async downloadFile(key: string, path: string): Promise<void> {
+    await pipeline(await this.readStream(key), createWriteStream(path));
+  }
+
+  async readStream(key: string): Promise<Readable> {
     const result = await this.ready.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     if (!result.Body) throw new Error(`Oracle returned an empty body for ${key}`);
-    await pipeline(result.Body as Readable, createWriteStream(path));
+    return result.Body as Readable;
   }
 
   async signedDownload(key: string, filename: string): Promise<string> {
