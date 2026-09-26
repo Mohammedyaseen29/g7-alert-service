@@ -5,7 +5,7 @@ export const AlarmConfigSchema = z.object({
   humidity: z.object({ high: z.number(), low: z.number(), enabled: z.boolean().default(true) }).partial().default({}),
   battery: z.object({ low: z.number(), enabled: z.boolean().default(true) }).partial().default({}),
   comm: z.object({ enabled: z.boolean().default(true) }).default({}),
-  delaySeconds: z.number().min(0).max(3600).default(300),
+  delaySeconds: z.number().min(0).max(3600).default(900),
   repeatMinutes: z.number().min(0).max(1440).default(30),
 }).superRefine((v, ctx) => {
   if (v.temperature?.high !== undefined && v.temperature?.low !== undefined && v.temperature.high <= v.temperature.low) {
@@ -23,6 +23,6 @@ export const DEFAULT_ALARM_CONFIG: AlarmConfig = {
   humidity: { high: 80, low: 20, enabled: true },
   battery: { low: 3.3, enabled: true },
   comm: { enabled: true },
-  delaySeconds: 300,
+  delaySeconds: 900,
   repeatMinutes: 30,
 };

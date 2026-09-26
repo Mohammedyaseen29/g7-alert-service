@@ -1,8 +1,8 @@
 self.addEventListener('push', (event) => {
   let message;
   try { message = event.data ? event.data.json() : null; } catch { message = null; }
-  const title = typeof message?.title === 'string' ? message.title : 'Pride Monitor alert';
-  const body = typeof message?.body === 'string' ? message.body : 'Open Pride Monitor for details.';
+  const title = typeof message?.title === 'string' ? message.title : 'Tempmo alert';
+  const body = typeof message?.body === 'string' ? message.body : 'Open Tempmo for details.';
   const url = message?.url === '/alarms' ? '/alarms' : '/';
   event.waitUntil(self.registration.showNotification(title, {
     body,

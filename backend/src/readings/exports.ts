@@ -1,12 +1,10 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
 import { once } from 'node:events';
 import { createGzip } from 'node:zlib';
-import { createWriteStream } from 'node:fs';
 import type { SensorReading } from '@prisma/client';
 import parquet from 'parquetjs-lite';
 import { logger } from '../config/logger.js';
@@ -14,7 +12,6 @@ import { type ArchiveManifest, readParquetRow } from './archive.js';
 import { OracleObjects } from './oracleObjects.js';
 import { ReadingsStore } from './readingsStore.js';
 import { nextUtcDay, utcDay } from './schema.js';
-import { pipeline } from 'node:stream/promises';
 
 const HEADER = ['station_id', 'sensor_id', 'received_at_utc', 'device_time_raw', 'temperature_c', 'temperature_2_c', 'humidity_percent', 'secondary', 'battery_v', 'raw_status', 'raw_fields'];
 
@@ -30,10 +27,16 @@ export function readingCsvLine(row: SensorReading): string {
     row.rawStatus, JSON.stringify(row.rawFields)].map(csvCell).join(',') + '\n';
 }
 
-async function fileHash(path: string): Promise<string> {
-  const digest = createHash('sha256');
-  for await (const chunk of createReadStream(path)) digest.update(chunk);
-  return digest.digest('hex');
+async function archiveBuffer(objects: OracleObjects, key: string): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const part of await objects.readStream(key)) {
+    const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
+    bytes += chunk.length;
+    if (bytes > 256 * 1024 * 1024) throw new Error('Legacy archive file is too large to read without a local temporary file');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 export class SensorExports {
@@ -110,7 +113,7 @@ export class SensorExports {
       if (claim.count === 0) return;
       try {
         const count = await this.generate(job.id, job.sensorIds as string[], job.from, job.to);
-        await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'DONE', objectKey: this.objects.enabled ? `sensor-exports/${job.id}.csv.gz` : `local:${job.id}`, rowCount: BigInt(count) } });
+        await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'DONE', objectKey: `sensor-exports/${job.id}.csv.gz`, rowCount: BigInt(count) } });
       } catch (error) {
         logger.error({ error, jobId: job.id }, 'sensor export failed');
         await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'FAILED', error: 'The export could not be completed. Please retry or contact support.' } });
@@ -126,10 +129,7 @@ export class SensorExports {
     plain.on('error', () => {});
     gzip.on('error', () => {});
     plain.pipe(gzip);
-    const objectKey = `sensor-exports/${jobId}.csv.gz`;
-    const localPath = join(this.dataDir, 'exports', `${jobId}.csv.gz`);
-    if (!this.objects.enabled) await mkdir(join(this.dataDir, 'exports'), { recursive: true });
-    const upload = this.objects.enabled ? this.objects.uploadStream(objectKey, gzip, 'application/gzip') : pipeline(gzip, createWriteStream(localPath));
+    const upload = this.objects.uploadStream(`sensor-exports/${jobId}.csv.gz`, gzip, 'application/gzip');
     let uploadError: unknown = null;
     void upload.catch((error) => { uploadError = error; plain.destroy(error); gzip.destroy(error); });
     const write = async (line: string) => {
@@ -143,15 +143,13 @@ export class SensorExports {
         const rangeStart = new Date(Math.max(day.getTime(), from.getTime()));
         const rangeEnd = new Date(Math.min(nextUtcDay(day).getTime(), to.getTime()));
         const archived = await this.readings.prisma.sensorArchiveDay.findUnique({ where: { day } });
-        if (archived && this.objects.enabled) {
+        if (archived) {
+          if (!this.objects.enabled) throw new Error('Older archived readings are unavailable without the existing Oracle archive credentials');
           const manifest = archived.objects as unknown as ArchiveManifest;
           for (const file of manifest.files) {
-            const directory = await mkdtemp(join(tmpdir(), 'g7-export-archive-'));
-            const path = join(directory, 'archive.parquet');
-            try {
-              await this.objects.downloadFile(file.key, path);
-              if (await fileHash(path) !== file.sha256) throw new Error(`Archive checksum mismatch: ${file.key}`);
-              const reader = await parquet.ParquetReader.openFile(path);
+              const buffer = await archiveBuffer(this.objects, file.key);
+              if (createHash('sha256').update(buffer).digest('hex') !== file.sha256) throw new Error(`Archive checksum mismatch: ${file.key}`);
+              const reader = await parquet.ParquetReader.openBuffer(buffer);
               try {
                 const cursor = reader.getCursor();
                 for (let record = await cursor.next(); record; record = await cursor.next()) {
@@ -164,15 +162,11 @@ export class SensorExports {
               } finally {
                 await reader.close();
               }
-            } finally {
-              await rm(directory, { recursive: true, force: true });
-            }
           }
-        } else {
-          for await (const row of this.readings.scan(rangeStart, rangeEnd, sensorIds)) {
-            await write(readingCsvLine(row));
-            count += 1;
-          }
+        }
+        for await (const row of this.readings.scan(rangeStart, rangeEnd, sensorIds)) {
+          await write(readingCsvLine(row));
+          count += 1;
         }
         await this.readings.prisma.sensorExportJob.update({ where: { id: jobId }, data: { rowCount: BigInt(count) } });
       }

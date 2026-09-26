@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Clock3, Radio, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock3, Pencil, Radio, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardContent } from '../components/ui/card.js';
@@ -12,6 +12,7 @@ import { recordSensorSamples, sensorHealth, type SensorHistory } from '../lib/te
 
 type Filter = 'all' | 'normal' | 'warning' | 'critical';
 type StatusFilter = 'all' | 'active' | 'inactive';
+const CLIENT_NAME_KEY = 'tempmo_dashboard_client_name';
 
 interface SystemStatus {
   g7?: string;
@@ -92,6 +93,13 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [clientName, setClientName] = useState(() => {
+    try { return localStorage.getItem(CLIENT_NAME_KEY)?.trim() ?? ''; }
+    catch { return ''; }
+  });
+  const [clientNameDraft, setClientNameDraft] = useState('');
+  const [editingClientName, setEditingClientName] = useState(false);
+  const [clientNameError, setClientNameError] = useState<string | null>(null);
   const [selectedSensorId, setSelectedSensorId] = useState<string | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -170,13 +178,38 @@ export function Dashboard() {
   const BaseIcon = baseStationIcon(baseState);
   const lastData = error ? null : status?.lastSensorUpdate ?? status?.lastMessage;
 
+  const saveClientName = () => {
+    const name = clientNameDraft.trim();
+    if (!name) { setClientNameError('Enter a client name.'); return; }
+    try {
+      localStorage.setItem(CLIENT_NAME_KEY, name);
+      setClientName(name);
+      setEditingClientName(false);
+      setClientNameError(null);
+    } catch { setClientNameError('This browser could not save the name. Check its storage settings.'); }
+  };
+
   return (
     <main className="w-full max-w-none min-h-[calc(100vh-64px)] bg-[#f8faf9] px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
-            <p className="m-0 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-700">Pride Monitor · operations</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#0b1f2a] sm:text-4xl">Temperature &amp; Humidity</h1>
+            <p className="m-0 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-700">Tempmo · operations</p>
+            {editingClientName ? (
+              <div className="mt-2 flex max-w-xl flex-wrap items-center gap-2">
+                <label className="sr-only" htmlFor="dashboard-client-name">Client name</label>
+                <input id="dashboard-client-name" autoFocus maxLength={60} value={clientNameDraft} placeholder="Enter client name" onChange={(event) => { setClientNameDraft(event.target.value); setClientNameError(null); }} onKeyDown={(event) => { if (event.key === 'Enter') saveClientName(); if (event.key === 'Escape') setEditingClientName(false); }} className="min-w-0 flex-1 rounded-lg border border-teal-400 bg-white px-3 py-2 text-xl font-semibold text-[#0b1f2a] outline-none focus:ring-2 focus:ring-teal-200" />
+                <Button type="button" onClick={saveClientName}>Save</Button>
+                <Button type="button" variant="outline" onClick={() => { setEditingClientName(false); setClientNameError(null); }}>Cancel</Button>
+                <p className="m-0 w-full text-xs text-slate-500">Saved in this browser on this device.</p>
+                {clientNameError && <p role="alert" className="m-0 w-full text-xs text-rose-700">{clientNameError}</p>}
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <h1 className="m-0 min-w-0 break-words text-3xl font-semibold tracking-tight text-[#0b1f2a] sm:text-4xl">{clientName || 'Temperature & Humidity'}</h1>
+                <Button type="button" size="sm" variant="outline" className="gap-1.5" aria-label="Edit dashboard client name" onClick={() => { setClientNameDraft(clientName); setEditingClientName(true); }}><Pencil className="size-3.5" aria-hidden="true" />{clientName ? 'Edit name' : 'Add client name'}</Button>
+              </div>
+            )}
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">Live sensor temperatures, humidity, and device status at a glance.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
