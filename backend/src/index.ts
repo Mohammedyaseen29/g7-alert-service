@@ -26,12 +26,11 @@ import type { AppStore } from './database/store.js';
 import { seedAdmin, signTokens, requireAuth, requireRole } from './auth/auth.js';
 import { LiveBus } from './websocket/liveBus.js';
 import { ReadingsStore } from './readings/readingsStore.js';
-import { LocalReadingJournal } from './readings/localJournal.js';
+import { ObjectReadingJournal } from './readings/objectJournal.js';
 import { ensureReadingsSchema } from './readings/schema.js';
 import { OracleObjects } from './readings/oracleObjects.js';
 import { SensorExports } from './readings/exports.js';
 import { buildSensorReport } from './readings/reportPdf.js';
-import { IngestSpool } from './readings/ingestSpool.js';
 import { z } from 'zod';
 
 const cfg = loadConfig();
@@ -45,15 +44,13 @@ const prismaStore = hasConfiguredDatabase ? await PrismaStore.create() : null;
 const store: AppStore = prismaStore ?? new FileStore(cfg.DATA_DIR);
 if (!hasConfiguredDatabase) logger.warn('Using JSON persistence because DATABASE_URL has not been configured');
 if (!prismaStore && cfg.NODE_ENV === 'production') throw new Error('DATABASE_URL is required in production for users, configuration, alarms, and export jobs');
-const localReadings = new LocalReadingJournal(cfg.DATA_DIR);
-const readings = prismaStore ? new ReadingsStore(prismaStore.prisma, localReadings) : null;
-if (readings) await ensureReadingsSchema(readings.prisma);
-const ingestSpool = await IngestSpool.open(cfg.DATA_DIR, cfg.SENSOR_SPOOL_MAX_MB * 1024 * 1024);
 const oracleObjects = new OracleObjects(cfg);
+const objectReadings = new ObjectReadingJournal(oracleObjects);
+const readings = prismaStore ? new ReadingsStore(prismaStore.prisma, objectReadings) : null;
+if (readings) await ensureReadingsSchema(readings.prisma);
 const sensorExports = readings ? new SensorExports(readings, oracleObjects, cfg.DATA_DIR) : null;
 if (sensorExports) await sensorExports.start();
-logger.info({ dataDir: cfg.DATA_DIR }, 'New sensor readings and CSV exports are stored on the backend disk');
-if (readings && !oracleObjects.enabled) logger.warn('Existing Oracle archives require OCI_OBJECT_* settings to remain readable');
+logger.info('New sensor readings and CSV exports are stored in Oracle Object Storage');
 await seedAdmin(store, cfg.BCRYPT_ROUNDS);
 
 const sensorState = new SensorState();
@@ -80,7 +77,8 @@ const pushEvent = (kind: 'alarms' | 'station', title: string, body: string, url:
 const bus = new LiveBus();
 const bootAt = new Date().toISOString();
 
-// ---- TCP ingestion: Receiver -> durable spool -> Parse -> local journal -> State -> Alarm
+// ---- TCP ingestion: Receiver -> Parse -> durable Oracle object -> State -> Alarm
+let storageFailureAt: string | null = null;
 async function processFrame(raw: string, remote: string, receivedAt: string, packetId?: string): Promise<void> {
     let msg;
     try {
@@ -91,7 +89,13 @@ async function processFrame(raw: string, remote: string, receivedAt: string, pac
     }
     for (const discovered of discoverSensorDefinitions(msg, store.getSensors())) store.upsertSensor(discovered);
     const normalized = normalizeMessage(msg, store.getSensors(), receivedAt);
-    await localReadings.captureMessage(msg, normalized, packetId ?? randomUUID());
+    try {
+      const saved = await objectReadings.captureMessage(msg, normalized, packetId ?? randomUUID());
+      if (saved > 0) storageFailureAt = null;
+    } catch (error) {
+      storageFailureAt = new Date().toISOString();
+      throw error;
+    }
     const snapshot = sensorState.update(normalized);
     const { triggered, recovered } = engine.evaluate(snapshot, cfg.SENSOR_TIMEOUT_SECONDS);
     const timeouts = engine.checkTimeouts(snapshot, cfg.SENSOR_TIMEOUT_SECONDS);
@@ -105,16 +109,13 @@ async function processFrame(raw: string, remote: string, receivedAt: string, pac
     bus.broadcast({ type: 'sensors', at: new Date().toISOString(), snapshot, alarms: allNew });
     logger.debug({ station: msg.stationId, sensors: Object.keys(normalized.sensors) }, 'G7 message processed');
 }
-if (ingestSpool) await ingestSpool.replay((frame) => processFrame(frame.raw, 'spool-replay', frame.receivedAt, frame.packetId));
 const stationMonitor = new StationPushMonitor(cfg.SENSOR_TIMEOUT_SECONDS * 1000, ({ title, body, tag }) => pushEvent('station', title, body, '/', tag));
 const checkStationState = () => {
   const stats = tcp.stats();
   stationMonitor.update(stats.connectedBaseStations, stats.lastG7MessageAt);
 };
 const tcp = new G7TcpServer(cfg.G7_HOST, cfg.G7_PORT, { maxMessageBytes: cfg.G7_MAX_MESSAGE_BYTES, maxBufferBytes: cfg.G7_MAX_BUFFER_BYTES }, {
-  onMessage: (raw, remote) => ingestSpool
-    ? ingestSpool.accept(raw, (frame) => processFrame(frame.raw, remote, frame.receivedAt, frame.packetId))
-    : processFrame(raw, remote, new Date().toISOString()),
+  onMessage: (raw, remote) => processFrame(raw, remote, new Date().toISOString()),
   onConnectionChange: () => checkStationState(),
   onTelemetry: () => checkStationState(),
 });
@@ -122,7 +123,7 @@ const tcp = new G7TcpServer(cfg.G7_HOST, cfg.G7_PORT, { maxMessageBytes: cfg.G7_
 // ---- Public health (no auth, for service monitors)
 app.get('/health', (_req, res) => {
   const t = tcp.stats();
-  res.json({ status: ingestSpool && ingestSpool.pendingBytes > 0 ? 'degraded' : 'ok', tcpServer: t.listening ? 'listening' : 'stopped', connectedBaseStations: t.connectedBaseStations, lastG7Message: t.lastG7MessageAt, totalMessages: t.totalMessages, pendingSensorBytes: ingestSpool?.pendingBytes ?? null, uptime: process.uptime(), bootAt });
+  res.json({ status: storageFailureAt ? 'degraded' : 'ok', tcpServer: t.listening ? 'listening' : 'stopped', connectedBaseStations: t.connectedBaseStations, lastG7Message: t.lastG7MessageAt, totalMessages: t.totalMessages, storageFailureAt, uptime: process.uptime(), bootAt });
 });
 
 // ---- Auth
@@ -231,7 +232,7 @@ app.get('/api/readings/report.pdf', auth, async (req, res) => {
   const activeSensors = store.getSensors().filter((sensor) => sensor.active !== false).map(({ id, name }) => ({ id, name }));
   if (!activeSensors.length) { res.status(400).json({ error: 'No active sensors are configured' }); return; }
   try {
-    const pdf = await buildSensorReport(readings ?? localReadings, activeSensors, from, to);
+    const pdf = await buildSensorReport(readings ?? objectReadings, activeSensors, from, to);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="tempmo-sensor-trends-${to.toISOString().slice(0, 10)}.pdf"`);
     res.setHeader('Cache-Control', 'private, no-store');
@@ -451,12 +452,6 @@ server.listen(cfg.HTTP_PORT, cfg.HTTP_HOST, () => {
   logger.info({ http: `${cfg.HTTP_HOST}:${cfg.HTTP_PORT}`, g7: `${cfg.G7_HOST}:${cfg.G7_PORT}` }, 'Tempmo started');
 });
 
-const spoolReplayTimer = setInterval(() => {
-  if (ingestSpool && ingestSpool.pendingBytes > 0) {
-    void ingestSpool.replay((frame) => processFrame(frame.raw, 'spool-retry', frame.receivedAt, frame.packetId))
-      .catch((error) => logger.error({ error, pendingBytes: ingestSpool.pendingBytes }, 'sensor spool replay deferred'));
-  }
-}, 15_000);
 const cleanupExports = () => { void sensorExports?.cleanupExpired(cfg.SENSOR_EXPORT_TTL_DAYS).catch((error) => logger.error({ error }, 'sensor export cleanup failed')); };
 cleanupExports();
 const exportCleanupTimer = setInterval(cleanupExports, 6 * 60 * 60_000);
@@ -477,5 +472,5 @@ const alarmTimer = setInterval(() => {
   }
 }, 15_000);
 
-process.on('SIGINT', async () => { clearInterval(alarmTimer); clearInterval(spoolReplayTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await ingestSpool.close(); await store.close(); process.exit(0); });
-process.on('SIGTERM', async () => { clearInterval(alarmTimer); clearInterval(spoolReplayTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await ingestSpool.close(); await store.close(); process.exit(0); });
+process.on('SIGINT', async () => { clearInterval(alarmTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await store.close(); process.exit(0); });
+process.on('SIGTERM', async () => { clearInterval(alarmTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await store.close(); process.exit(0); });

@@ -23,8 +23,8 @@ Frontend validation: run `npm test` and `npm run build` from `frontend`.
 Sensors →(RF)→ Base Station →(TCP)→ Node backend → Parser → State → Alarms → Email
 React PWA → REST/WS → Node backend → State / Config / DB
 Browser subscription → PostgreSQL → Web Push → PWA service worker → device notification
-G7 frames → fsynced local spool → fsynced local reading journal
-History filters → local CSV.gz job → authenticated download
+G7 frames → Oracle Object Storage reading objects → live state and alarms
+History filters → Oracle CSV.gz job → authenticated download
 Active sensor history → one-page A4 PDF trend report
 ```
 
@@ -96,33 +96,33 @@ addresses are stored by the application and are not environment variables.
 `GET /api/readings/availability` · `GET /api/readings/report.pdf` · `POST/GET /api/readings/exports` ·
 `GET /api/readings/exports/:id/download` · `GET /api/alarms/export.csv`
 
-### Sensor history and local storage
+### Sensor history in Oracle Object Storage
 
-New raw readings are written to daily journal files under `DATA_DIR/readings-local`
-on the backend host. Each received G7 frame is first fsynced to a bounded local
-spool, then its discovered active-sensor readings are fsynced to the journal.
-The spool keeps a frame pending if writing fails and replays it after recovery;
-packet IDs make the journal idempotent across restarts. The live snapshot is
-updated only after the local write succeeds. The original device `TM` value is
-retained without treating it as UTC; the server receipt time is UTC.
+Configure all five `OCI_OBJECT_*` values before startup. Each accepted frame's
+active-sensor readings are written directly to a private Oracle Object Storage
+object under `sensor-live/v1/`. No new raw frame or reading is written to the
+backend disk or as a raw-reading row in PostgreSQL. The live snapshot updates
+only after Oracle confirms the write. The original device `TM` is retained
+without treating it as UTC; the server receipt time is UTC.
 
-Choose a persistent, backed-up disk for `DATA_DIR` with enough capacity for
-continuous history. The local spool and journal protect against process
-restarts, but cannot recover data a base station never transmitted or a failed
-host disk. Files are not sent to Oracle Object Storage or stored as new raw
-reading rows in PostgreSQL. New CSV jobs also write to local disk and expire
-after `SENSOR_EXPORT_TTL_DAYS` (7 by default). If the backend itself runs on a
-cloud VM, that VM's local disk is still physically hosted in the cloud; run the
-backend on an on-site machine if the data must never reside on cloud hardware.
+Oracle access is now required for ingestion. If it fails, the backend marks
+`/health` degraded and closes the G7 connection for that frame instead of
+showing an unsaved reading as live. Without any local durable buffer, frames
+that the base station does not retry can be lost during an Oracle outage or
+backend restart. Configure bucket replication/versioning and monitor health;
+this design cannot guarantee uninterrupted capture during a network outage.
+One object is written per reporting frame, so confirm Object Storage request
+costs and retention for the expected sensor rate.
 
-Existing PostgreSQL reading rows and Oracle archives from earlier versions are
-left untouched. CSV exports can still read those records when their original
-database/archive connections are available. This release does not upload new
-archives or CSV files to Oracle. Review and migrate legacy cloud data before
-deleting it; automatic deletion would risk losing historical records.
+CSV exports are also prepared in Oracle Object Storage and expire after
+`SENSOR_EXPORT_TTL_DAYS` (7 by default). Existing PostgreSQL rows and older
+Oracle archives remain readable. Legacy local export files can still be
+downloaded, but this version creates no new local exports. Migrating or
+deleting previously saved local files is a separate operation and is not done
+automatically.
 
 The PDF report uses the selected History time period and includes every
-configured, active sensor on one A4 landscape sheet. It draws locally saved
+configured, active sensor on one A4 landscape sheet. It draws Oracle live
 readings and legacy PostgreSQL rows; older Oracle-only archive days are not
 included in the graph report. A short threshold excursion, stale reading, or
 station outage that clears before 15 minutes produces no alarm, buzzer, email,

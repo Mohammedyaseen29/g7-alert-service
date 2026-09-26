@@ -174,9 +174,8 @@ export function History() {
                 <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
                 <Button type="button" variant="outline" className="gap-2" disabled={reportLoading || loading || !sensors.some((sensor) => sensor.active !== false)} onClick={() => { void createReport(); }}><FileText className="size-4" />{reportLoading ? 'Building report…' : 'Download A4 graphs'}</Button>
                 <span className="w-full text-xs text-slate-500">The graph report uses this time period and includes every configured, active sensor. Inactive sensors are excluded.</span>
-                <span className="text-xs text-slate-500">CSV downloads are prepared on the backend disk and remain available for {availability?.exportTtlDays ?? 7} days.</span>
+                <span className="text-xs text-slate-500">CSV downloads are prepared in Oracle Object Storage and remain available for {availability?.exportTtlDays ?? 7} days.</span>
                 {availability && !availability.first && <span role="status" className="w-full text-xs text-amber-800">No saved readings are available for the selected sensors.</span>}
-                {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-slate-500">Local readings can be exported. Older legacy archives need their original archive credentials.</span>}
                 {availabilityLoading && <span role="status" className="w-full text-xs text-slate-500">Checking saved readings…</span>}
               </div>
             </CardContent>

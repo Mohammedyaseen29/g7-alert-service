@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
 import { Readable } from 'node:stream';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SensorReading } from '@prisma/client';
@@ -10,8 +10,6 @@ import type { ReadingsStore } from './readingsStore.js';
 import type { OracleObjects } from './oracleObjects.js';
 
 it('builds a compressed CSV in the background without loading the reading set at once', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'g7-export-create-test-'));
-  try {
   const row: SensorReading = {
     receivedAt: new Date('2026-01-02T09:10:11.000Z'), packetId: '00000000-0000-4000-8000-000000000001',
     stationId: '000000', sensorId: '02', deviceTimeRaw: '260102091011',
@@ -32,18 +30,21 @@ it('builds a compressed CSV in the background without loading the reading set at
     sensorArchiveDay: { findUnique: async () => null },
   };
   const readings = { prisma, async *scan() { yield row; } } as unknown as ReadingsStore;
-  const objects = { enabled: false } as OracleObjects;
-  const exports = new SensorExports(readings, objects, directory);
+  let uploaded = Buffer.alloc(0);
+  const objects = { enabled: true, uploadStream: async (key: string, stream: Readable) => {
+    expect(key).toBe(`sensor-exports/${job.id}.csv.gz`);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    uploaded = Buffer.concat(chunks);
+  } } as unknown as OracleObjects;
+  const exports = new SensorExports(readings, objects);
   await (exports as unknown as { processOne(): Promise<void> }).processOne();
   expect(job.status).toBe('DONE');
   expect(job.rowCount).toBe(1n);
-  expect(job.objectKey).toBe(`local:${job.id}`);
-  const csv = gunzipSync(await readFile(join(directory, 'exports', `${job.id}.csv.gz`))).toString('utf8');
+  expect(job.objectKey).toBe(`sensor-exports/${job.id}.csv.gz`);
+  const csv = gunzipSync(uploaded).toString('utf8');
   expect(csv).toContain('station_id,sensor_id,received_at_utc');
   expect(csv).toContain('000000,02,2026-01-02T09:10:11.000Z,260102091011,0');
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
 });
 
 it('streams a completed Oracle export as readable CSV only for its owner', async () => {

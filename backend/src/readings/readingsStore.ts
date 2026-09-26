@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient, SensorReading } from '@prisma/client';
 import { nextUtcDay, utcDay } from './schema.js';
-import { LocalReadingJournal } from './localJournal.js';
+import { ObjectReadingJournal } from './objectJournal.js';
 
 export type Reading = SensorReading;
 
@@ -11,7 +11,7 @@ export interface ReadingCursor {
 }
 
 export class ReadingsStore {
-  constructor(readonly prisma: PrismaClient, private readonly local: LocalReadingJournal) {}
+  constructor(readonly prisma: PrismaClient, private readonly objects: ObjectReadingJournal) {}
 
   async page(from: Date, to: Date, sensorIds: string[], cursor?: ReadingCursor, take = 1000): Promise<Reading[]> {
     const where: Prisma.SensorReadingWhereInput = {
@@ -40,7 +40,7 @@ export class ReadingsStore {
   async *scan(from: Date, to: Date, sensorIds: string[] = []): AsyncGenerator<Reading> {
     // Include older database readings without putting newly received telemetry there.
     const database = this.databaseScan(from, to, sensorIds)[Symbol.asyncIterator]();
-    const local = this.local.scan(from, to, sensorIds)[Symbol.asyncIterator]();
+    const local = this.objects.scan(from, to, sensorIds)[Symbol.asyncIterator]();
     let dbRow = await database.next();
     let localRow = await local.next();
     while (!dbRow.done || !localRow.done) {
@@ -73,7 +73,7 @@ export class ReadingsStore {
       return ids.flatMap((id) => [info.firstBySensor?.[id], info.lastBySensor?.[id]])
         .filter((value): value is string => Boolean(value)).map((value) => new Date(value));
     });
-    const local = await this.local.availability(sensorIds);
+    const local = await this.objects.availability(sensorIds);
     const earliest = [first?.receivedAt, local.first, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
     const latest = [last?.receivedAt, local.last, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
     return { first: earliest, last: latest };
