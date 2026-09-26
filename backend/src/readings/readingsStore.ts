@@ -1,8 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient, SensorReading } from '@prisma/client';
-import type { G7ParsedMessage } from '../protocol/g7Types.js';
-import type { NormalizedState } from '../sensors/sensorService.js';
-import { ensureDayPartition, nextUtcDay, utcDay } from './schema.js';
+import { nextUtcDay, utcDay } from './schema.js';
+import { LocalReadingJournal } from './localJournal.js';
 
 export type Reading = SensorReading;
 
@@ -13,33 +11,7 @@ export interface ReadingCursor {
 }
 
 export class ReadingsStore {
-  constructor(readonly prisma: PrismaClient) {}
-
-  async capture(msg: G7ParsedMessage, normalized: NormalizedState, packetId: string = randomUUID()): Promise<number> {
-    const receivedAt = new Date(normalized.lastMessageAt);
-    const data: Prisma.SensorReadingCreateManyInput[] = Object.entries(normalized.sensors).map(([sensorId, value]) => {
-      const rawFields: Record<string, string> = {};
-      for (const prefix of ['A', 'H', 'B', 'K']) {
-        const field = `${prefix}${sensorId}`;
-        if (msg.fields[field] !== undefined) rawFields[field] = msg.fields[field];
-      }
-      return {
-        receivedAt, packetId, stationId: msg.stationId, sensorId,
-        deviceTimeRaw: msg.timestamp ?? null,
-        temperature: value.temperature ?? null,
-        temperature2: value.temperature2 ?? null,
-        humidity: value.humidity ?? null,
-        secondary: value.secondary ?? null,
-        battery: value.battery ?? null,
-        rawStatus: value.rawStatus ?? null,
-        rawFields,
-      };
-    });
-    if (data.length === 0) return 0;
-    await ensureDayPartition(this.prisma, receivedAt);
-    const result = await this.prisma.sensorReading.createMany({ data, skipDuplicates: true });
-    return result.count;
-  }
+  constructor(readonly prisma: PrismaClient, private readonly local: LocalReadingJournal) {}
 
   async page(from: Date, to: Date, sensorIds: string[], cursor?: ReadingCursor, take = 1000): Promise<Reading[]> {
     const where: Prisma.SensorReadingWhereInput = {
@@ -54,7 +26,7 @@ export class ReadingsStore {
     });
   }
 
-  async *scan(from: Date, to: Date, sensorIds: string[] = []): AsyncGenerator<Reading> {
+  private async *databaseScan(from: Date, to: Date, sensorIds: string[] = []): AsyncGenerator<Reading> {
     let cursor: ReadingCursor | undefined;
     for (;;) {
       const rows = await this.page(from, to, sensorIds, cursor);
@@ -62,6 +34,25 @@ export class ReadingsStore {
       for (const row of rows) yield row;
       const last = rows.at(-1)!;
       cursor = { receivedAt: last.receivedAt, packetId: last.packetId, sensorId: last.sensorId };
+    }
+  }
+
+  async *scan(from: Date, to: Date, sensorIds: string[] = []): AsyncGenerator<Reading> {
+    // Include older database readings without putting newly received telemetry there.
+    const database = this.databaseScan(from, to, sensorIds)[Symbol.asyncIterator]();
+    const local = this.local.scan(from, to, sensorIds)[Symbol.asyncIterator]();
+    let dbRow = await database.next();
+    let localRow = await local.next();
+    while (!dbRow.done || !localRow.done) {
+      if (dbRow.done) { yield localRow.value; localRow = await local.next(); continue; }
+      if (localRow.done) { yield dbRow.value; dbRow = await database.next(); continue; }
+      const a = dbRow.value;
+      const b = localRow.value;
+      const order = a.receivedAt.getTime() - b.receivedAt.getTime()
+        || a.packetId.localeCompare(b.packetId) || a.sensorId.localeCompare(b.sensorId);
+      if (order < 0) { yield a; dbRow = await database.next(); }
+      else if (order > 0) { yield b; localRow = await local.next(); }
+      else { yield b; dbRow = await database.next(); localRow = await local.next(); }
     }
   }
 
@@ -82,8 +73,9 @@ export class ReadingsStore {
       return ids.flatMap((id) => [info.firstBySensor?.[id], info.lastBySensor?.[id]])
         .filter((value): value is string => Boolean(value)).map((value) => new Date(value));
     });
-    const earliest = [first?.receivedAt, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-    const latest = [last?.receivedAt, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const local = await this.local.availability(sensorIds);
+    const earliest = [first?.receivedAt, local.first, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    const latest = [last?.receivedAt, local.last, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
     return { first: earliest, last: latest };
   }
 

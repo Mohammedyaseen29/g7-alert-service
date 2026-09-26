@@ -110,7 +110,7 @@ export class SensorExports {
       if (claim.count === 0) return;
       try {
         const count = await this.generate(job.id, job.sensorIds as string[], job.from, job.to);
-        await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'DONE', objectKey: this.objects.enabled ? `sensor-exports/${job.id}.csv.gz` : `local:${job.id}`, rowCount: BigInt(count) } });
+        await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'DONE', objectKey: `local:${job.id}`, rowCount: BigInt(count) } });
       } catch (error) {
         logger.error({ error, jobId: job.id }, 'sensor export failed');
         await this.readings.prisma.sensorExportJob.update({ where: { id: job.id }, data: { status: 'FAILED', error: 'The export could not be completed. Please retry or contact support.' } });
@@ -126,10 +126,9 @@ export class SensorExports {
     plain.on('error', () => {});
     gzip.on('error', () => {});
     plain.pipe(gzip);
-    const objectKey = `sensor-exports/${jobId}.csv.gz`;
     const localPath = join(this.dataDir, 'exports', `${jobId}.csv.gz`);
-    if (!this.objects.enabled) await mkdir(join(this.dataDir, 'exports'), { recursive: true });
-    const upload = this.objects.enabled ? this.objects.uploadStream(objectKey, gzip, 'application/gzip') : pipeline(gzip, createWriteStream(localPath));
+    await mkdir(join(this.dataDir, 'exports'), { recursive: true });
+    const upload = pipeline(gzip, createWriteStream(localPath));
     let uploadError: unknown = null;
     void upload.catch((error) => { uploadError = error; plain.destroy(error); gzip.destroy(error); });
     const write = async (line: string) => {
@@ -143,7 +142,8 @@ export class SensorExports {
         const rangeStart = new Date(Math.max(day.getTime(), from.getTime()));
         const rangeEnd = new Date(Math.min(nextUtcDay(day).getTime(), to.getTime()));
         const archived = await this.readings.prisma.sensorArchiveDay.findUnique({ where: { day } });
-        if (archived && this.objects.enabled) {
+        if (archived) {
+          if (!this.objects.enabled) throw new Error('Older archived readings are unavailable without the existing Oracle archive credentials');
           const manifest = archived.objects as unknown as ArchiveManifest;
           for (const file of manifest.files) {
             const directory = await mkdtemp(join(tmpdir(), 'g7-export-archive-'));
@@ -168,11 +168,10 @@ export class SensorExports {
               await rm(directory, { recursive: true, force: true });
             }
           }
-        } else {
-          for await (const row of this.readings.scan(rangeStart, rangeEnd, sensorIds)) {
-            await write(readingCsvLine(row));
-            count += 1;
-          }
+        }
+        for await (const row of this.readings.scan(rangeStart, rangeEnd, sensorIds)) {
+          await write(readingCsvLine(row));
+          count += 1;
         }
         await this.readings.prisma.sensorExportJob.update({ where: { id: jobId }, data: { rowCount: BigInt(count) } });
       }
@@ -183,6 +182,7 @@ export class SensorExports {
       plain.destroy(error as Error);
       gzip.destroy(error as Error);
       await upload.catch(() => {});
+      await rm(localPath, { force: true });
       throw error;
     }
   }

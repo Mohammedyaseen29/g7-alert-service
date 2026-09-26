@@ -20,6 +20,7 @@ export function AlarmConfigPage() {
       <Button variant="outline" className="mb-3 gap-2" asChild><Link to="/"><ArrowLeft className="size-4" />Back to sensors</Link></Button>
       <div className="card">
         <h2>Sensor {id} — Alarm configuration</h2>
+        <div className="notice">An out-of-range reading or lost sensor must continue for 15 minutes before an alarm, email, sound, or push alert starts. A brief excursion will not alert.</div>
         {!canEdit && <div className="error">VIEWER role: read-only.</div>}
         <label>Sensor name</label>
         <input value={cfg.name ?? ''} disabled={!canEdit} onChange={(e) => setCfg({ ...cfg, name: e.target.value })} />

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AlarmEngine } from '../alarms/alarmEngine.js';
+import { AlarmEngine, MIN_ALARM_DELAY_MS } from '../alarms/alarmEngine.js';
 import { DEFAULT_ALARM_CONFIG } from '../alarms/alarmTypes.js';
 import type { AppStore } from '../database/store.js';
 import type { NotificationProvider } from './notificationProvider.js';
@@ -30,6 +30,8 @@ describe('alarm email delivery', () => {
   it('retries a failed alarm and repeats only after the configured interval', async () => {
     const ctx = setup();
     ctx.engine.evaluate(snapshot(35, ctx.now()));
+    ctx.advance(MIN_ALARM_DELAY_MS);
+    ctx.engine.evaluate(snapshot(35, ctx.now()));
     ctx.sendAlarm.mockRejectedValueOnce(new Error('SMTP unavailable'));
     await ctx.service.flush();
     expect(ctx.logNotification).not.toHaveBeenCalled();
@@ -56,6 +58,8 @@ describe('alarm email delivery', () => {
   it('sends and retries recovery after a delivered alarm', async () => {
     const ctx = setup();
     ctx.engine.evaluate(snapshot(35, ctx.now()));
+    ctx.advance(MIN_ALARM_DELAY_MS);
+    ctx.engine.evaluate(snapshot(35, ctx.now()));
     await ctx.service.flush();
     const recovered = ctx.engine.evaluate(snapshot(20, ctx.now())).recovered;
     ctx.service.queueRecoveries(recovered);
@@ -71,6 +75,8 @@ describe('alarm email delivery', () => {
   it('delivers alarms triggered by the periodic disconnection check', async () => {
     const ctx = setup();
     ctx.engine.checkTimeouts(snapshot(25, ctx.now() - 200_000), 120);
+    ctx.advance(MIN_ALARM_DELAY_MS);
+    ctx.engine.checkTimeouts(snapshot(25, ctx.now() - 200_000), 120);
     await ctx.service.flush();
     expect(ctx.sendAlarm).toHaveBeenCalledTimes(1);
     expect(ctx.logNotification).toHaveBeenCalledWith(expect.objectContaining({ kind: 'sensor_disconnected', type: 'alarm' }));
@@ -78,6 +84,8 @@ describe('alarm email delivery', () => {
 
   it('does not record a notification when delivery is skipped', async () => {
     const ctx = setup();
+    ctx.engine.evaluate(snapshot(35, ctx.now()));
+    ctx.advance(MIN_ALARM_DELAY_MS);
     ctx.engine.evaluate(snapshot(35, ctx.now()));
     ctx.sendAlarm.mockResolvedValue(false);
     await ctx.service.flush();

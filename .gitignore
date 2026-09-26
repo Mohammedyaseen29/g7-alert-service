@@ -12,7 +12,7 @@ frontend/dist/
 .vite/
 
 # Runtime data and logs
-backend/data/*.json
+backend/data/
 backend/data-test/
 *.log
 logs/

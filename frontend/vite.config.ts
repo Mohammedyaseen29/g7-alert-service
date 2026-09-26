@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
     },
     devOptions: { enabled: true, type: 'classic' },
     manifest: {
-      id: '/', name: 'Pride Monitor', short_name: 'Pride Monitor',
+      id: '/', name: 'Tempmo', short_name: 'Tempmo',
       description: 'Live G7 sensor monitoring, alarms, and history',
       start_url: '/', scope: '/', display: 'standalone',
       background_color: '#0b1f3a', theme_color: '#0b1f3a',

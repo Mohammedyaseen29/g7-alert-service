@@ -10,7 +10,7 @@ const ConfigSchema = z.object({
   HTTP_PORT: z.coerce.number().default(3000),
   // Comma-separated browser origins allowed to call the HTTP API.
   FRONTEND_ORIGIN: z.string().default('https://monitoring.prideengs.com'),
-  ALARM_DELAY_SECONDS: z.coerce.number().default(300),
+  ALARM_DELAY_SECONDS: z.coerce.number().default(900),
   ALARM_REPEAT_MINUTES: z.coerce.number().default(30),
   SENSOR_TIMEOUT_SECONDS: z.coerce.number().default(120),
   RECOVERY_EMAIL_ENABLED: z.coerce.boolean().default(true),
