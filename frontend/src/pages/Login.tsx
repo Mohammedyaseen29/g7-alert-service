@@ -56,7 +56,7 @@ export function Login() {
 
         <Card className="border-white/10 bg-white shadow-2xl shadow-slate-950/40">
           <CardHeader className="space-y-3 p-6 sm:p-8">
-            <div className="text-xs font-semibold uppercase tracking-[.18em] text-teal-700 lg:hidden">Pride Monitor</div>
+            <div className="text-xs font-semibold uppercase tracking-[.18em] text-teal-700 lg:hidden">Tempmo</div>
             <CardTitle className="text-2xl tracking-tight text-slate-950">Welcome back</CardTitle>
             <CardDescription className="text-sm leading-6 text-slate-500">Sign in to access your industrial monitoring workspace.</CardDescription>
           </CardHeader>
@@ -85,7 +85,7 @@ export function Login() {
                 {busy ? 'Signing in…' : 'Sign in'}
                 {!busy && <ArrowRight className="size-4" aria-hidden="true" />}
               </Button>
-              <p className="text-center text-xs leading-5 text-slate-400">Use your authorized Pride Monitor account to continue.</p>
+              <p className="text-center text-xs leading-5 text-slate-400">Use your authorized Tempmo account to continue.</p>
             </CardFooter>
           </form>
         </Card>

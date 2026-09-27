@@ -122,8 +122,8 @@ function AlarmBadge({ status }: { status: StatusState }) {
 
 function Brand() {
   return (
-    <div className="min-w-0 leading-none" aria-label="Pride Monitor">
-        <span className="block truncate text-sm font-semibold tracking-[.22em] text-white">PRIDE MONITOR</span>
+    <div className="min-w-0 leading-none" aria-label="Tempmo">
+        <span className="block truncate text-sm font-semibold tracking-[.22em] text-white">TEMPMO</span>
         <span className="mt-1 block truncate text-[10px] font-medium tracking-[.2em] text-cyan-200/70">INDUSTRIAL IOT</span>
     </div>
   );

@@ -94,6 +94,24 @@ export async function downloadReadingExport(job: ReadingExport): Promise<void> {
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }
 
+export async function downloadSensorReport(range: { from?: string; to?: string }): Promise<void> {
+  const params = new URLSearchParams();
+  if (range.from) params.set('from', range.from);
+  if (range.to) params.set('to', range.to);
+  const token = localStorage.getItem('g7_token');
+  const response = await fetch(`${BACKEND_URL}/api/readings/report.pdf?${params}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? 'Could not download sensor graph report');
+  }
+  const blobUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = `tempmo-sensor-trends-${new Date().toISOString().slice(0, 10)}.pdf`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
+}
+
 export interface ReadingExport {
   id: string;
   sensorIds: string[];

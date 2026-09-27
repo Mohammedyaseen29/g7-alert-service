@@ -31,18 +31,17 @@ it('builds a compressed CSV in the background without loading the reading set at
   };
   const readings = { prisma, async *scan() { yield row; } } as unknown as ReadingsStore;
   let uploaded = Buffer.alloc(0);
-  const objects = {
-    enabled: true,
-    uploadStream: async (_key: string, stream: Readable) => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-      uploaded = Buffer.concat(chunks);
-    },
-  } as unknown as OracleObjects;
+  const objects = { enabled: true, uploadStream: async (key: string, stream: Readable) => {
+    expect(key).toBe(`sensor-exports/${job.id}.csv.gz`);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    uploaded = Buffer.concat(chunks);
+  } } as unknown as OracleObjects;
   const exports = new SensorExports(readings, objects);
   await (exports as unknown as { processOne(): Promise<void> }).processOne();
   expect(job.status).toBe('DONE');
   expect(job.rowCount).toBe(1n);
+  expect(job.objectKey).toBe(`sensor-exports/${job.id}.csv.gz`);
   const csv = gunzipSync(uploaded).toString('utf8');
   expect(csv).toContain('station_id,sensor_id,received_at_utc');
   expect(csv).toContain('000000,02,2026-01-02T09:10:11.000Z,260102091011,0');

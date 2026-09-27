@@ -10,7 +10,7 @@ const ConfigSchema = z.object({
   HTTP_PORT: z.coerce.number().default(3000),
   // Comma-separated browser origins allowed to call the HTTP API.
   FRONTEND_ORIGIN: z.string().default('https://monitoring.prideengs.com'),
-  ALARM_DELAY_SECONDS: z.coerce.number().default(300),
+  ALARM_DELAY_SECONDS: z.coerce.number().default(900),
   ALARM_REPEAT_MINUTES: z.coerce.number().default(30),
   SENSOR_TIMEOUT_SECONDS: z.coerce.number().default(120),
   RECOVERY_EMAIL_ENABLED: z.coerce.boolean().default(true),
@@ -36,7 +36,6 @@ const ConfigSchema = z.object({
   OCI_OBJECT_ACCESS_KEY: z.string().default(''),
   OCI_OBJECT_SECRET_KEY: z.string().default(''),
   SENSOR_HOT_DAYS: z.coerce.number().int().min(3).max(3650).default(90),
-  SENSOR_SPOOL_MAX_MB: z.coerce.number().int().min(16).max(16384).default(512),
   SENSOR_EXPORT_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(7),
   LOG_LEVEL: z.string().default('info'),
   NODE_ENV: z.string().default('development'),

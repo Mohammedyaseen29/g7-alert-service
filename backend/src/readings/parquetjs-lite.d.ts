@@ -10,6 +10,7 @@ declare module 'parquetjs-lite' {
   }
   export class ParquetReader {
     static openFile(path: string): Promise<ParquetReader>;
+    static openBuffer(buffer: Buffer): Promise<ParquetReader>;
     getCursor(columns?: string[]): { next(): Promise<Record<string, unknown> | null> };
     close(): Promise<void>;
   }

@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { AppConfig } from '../config/config.js';
@@ -56,6 +56,20 @@ export class OracleObjects {
       leavePartsOnError: false,
     });
     await upload.done();
+  }
+
+  async putBytes(key: string, body: Buffer, contentType: string): Promise<void> {
+    await this.ready.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+  }
+
+  async *listKeys(prefix: string): AsyncGenerator<string> {
+    let cursor: string | undefined;
+    do {
+      const page = await this.ready.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: cursor }));
+      for (const item of page.Contents ?? []) if (item.Key) yield item.Key;
+      cursor = page.IsTruncated ? page.NextContinuationToken : undefined;
+      if (page.IsTruncated && !cursor) throw new Error('Oracle object listing stopped before all pages were returned');
+    } while (cursor);
   }
 
   async downloadFile(key: string, path: string): Promise<void> {

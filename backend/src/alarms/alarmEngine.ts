@@ -21,10 +21,12 @@ export interface AlarmEvent {
 interface KeyState {
   lifecycle: AlarmLifecycle;
   pendingSince?: number;
+  pendingThreshold?: number;
   activeEvent?: AlarmEvent;
 }
 
 const key = (s: string, k: AlarmKind) => `${s}:${k}`;
+export const MIN_ALARM_DELAY_MS = 15 * 60 * 1000;
 
 export interface EngineOpts {
   now?: () => number;
@@ -46,15 +48,20 @@ export class AlarmEngine {
     return (this.opts.uuid ?? (() => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`))();
   }
 
-  evaluate(state: NormalizedState): { triggered: AlarmEvent[]; recovered: AlarmEvent[] } {
+  evaluate(state: NormalizedState, freshnessSeconds?: number): { triggered: AlarmEvent[]; recovered: AlarmEvent[] } {
     const triggered: AlarmEvent[] = [];
     const recovered: AlarmEvent[] = [];
     const now = this.tnow();
     const iso = new Date(now).toISOString();
 
     for (const [sensorId, reading] of Object.entries(state.sensors)) {
+      const lastSeen = Date.parse(reading.lastSeen);
+      if (freshnessSeconds !== undefined && (!Number.isFinite(lastSeen) || now - lastSeen > freshnessSeconds * 1000)) {
+        this.clearPendingSensor(sensorId);
+        continue;
+      }
       const cfg = this.getConfig(sensorId);
-      const delayMs = (cfg.delaySeconds ?? 300) * 1000;
+      const delayMs = Math.max(MIN_ALARM_DELAY_MS, (cfg.delaySeconds ?? 900) * 1000);
       const checks: { kind: AlarmKind; breached: boolean; value?: number; threshold?: number; enabled: boolean; label: string }[] = [
         { kind: 'temp_high', breached: Boolean(reading.temperature !== undefined && cfg.temperature?.enabled && cfg.temperature.high !== undefined && reading.temperature > cfg.temperature.high), value: reading.temperature, threshold: cfg.temperature?.high, enabled: Boolean(cfg.temperature?.enabled), label: 'High Temperature' },
         { kind: 'temp_low', breached: Boolean(reading.temperature !== undefined && cfg.temperature?.enabled && cfg.temperature.low !== undefined && reading.temperature < cfg.temperature.low), value: reading.temperature, threshold: cfg.temperature?.low, enabled: Boolean(cfg.temperature?.enabled), label: 'Low Temperature' },
@@ -91,7 +98,7 @@ export class AlarmEngine {
       const lastSeen = reading ? Date.parse(reading.lastSeen) : 0;
       const stale = !reading || now - lastSeen > timeoutSeconds * 1000;
       const k = key(sensorId, 'sensor_disconnected');
-      const delayMs = (cfg.delaySeconds ?? 300) * 1000;
+      const delayMs = Math.max(MIN_ALARM_DELAY_MS, (cfg.delaySeconds ?? 900) * 1000);
       if (stale && (reading || this.states.has(k))) {
         this.progress(k, state.stationId, sensorId, 'sensor_disconnected', undefined, undefined, `Sensor ${sensorId} disconnected`, now, iso, delayMs, triggered);
       } else if (!stale) {
@@ -107,11 +114,20 @@ export class AlarmEngine {
     return [...ids];
   }
 
+  private clearPendingSensor(sensorId: string): void {
+    for (const [k, state] of this.states) {
+      // A stale measurement cannot confirm a value alarm. Preserve the
+      // communication alarm's timer: other sensors may keep sending frames.
+      if (k.startsWith(`${sensorId}:`) && !k.endsWith(':sensor_disconnected') && state.lifecycle === 'PENDING') this.states.delete(k);
+    }
+  }
+
   private progress(k: string, stationId: string, sensorId: string, kind: AlarmKind, value: number | undefined, threshold: number | undefined, message: string, now: number, iso: string, delayMs: number, out: AlarmEvent[]) {
     const st = this.states.get(k) ?? { lifecycle: 'NORMAL' as AlarmLifecycle };
-    if (st.lifecycle === 'NORMAL' || st.lifecycle === 'RECOVERED') {
+    if (st.lifecycle === 'NORMAL' || st.lifecycle === 'RECOVERED' || (st.lifecycle === 'PENDING' && st.pendingThreshold !== threshold)) {
       st.lifecycle = 'PENDING';
       st.pendingSince = now;
+      st.pendingThreshold = threshold;
       this.states.set(k, st);
     }
     if (st.lifecycle === 'PENDING' && now - (st.pendingSince ?? now) >= delayMs) {

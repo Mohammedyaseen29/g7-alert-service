@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Download, RefreshCw, Thermometer } from 'lucide-react';
-import { api, downloadReadingExport, type ReadingExport } from '../api.js';
+import { CalendarDays, Download, FileText, RefreshCw, Thermometer } from 'lucide-react';
+import { api, downloadReadingExport, downloadSensorReport, type ReadingExport } from '../api.js';
 import type { Sensor } from '../types.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -31,6 +31,7 @@ export function History() {
   const [loading, setLoading] = useState(true);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const availabilityRequest = useRef(0);
@@ -78,32 +79,54 @@ export function History() {
   const selectedNames = useMemo(() => selected.length === 0 ? 'All sensors' : `${selected.length} sensor${selected.length === 1 ? '' : 's'}`, [selected]);
   const toggleSensor = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
 
-  const createExport = async () => {
-    setError(null);
-    setNotice(null);
+  const selectedPeriodRange = (): { from?: string; to?: string } => {
     const now = new Date();
-    let from: string | undefined;
-    let to: string | undefined;
     if (period === 'custom') {
-      if (!customFrom || !customTo) { setError('Choose both start and end dates.'); return; }
+      if (!customFrom || !customTo) throw new Error('Choose both start and end dates.');
       const start = new Date(customFrom);
       const end = new Date(customTo);
       if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end || end > now) {
-        setError('Choose a valid range ending no later than now.'); return;
+        throw new Error('Choose a valid range ending no later than now.');
       }
-      from = start.toISOString(); to = end.toISOString();
-    } else if (period !== 'all') {
-      const days = period === 'day' ? 1 : period === 'week' ? 7 : 30;
-      from = new Date(now.getTime() - days * 86_400_000).toISOString();
-      to = now.toISOString();
+      return { from: start.toISOString(), to: end.toISOString() };
     }
+    if (period === 'all') return { to: now.toISOString() };
+    const days = period === 'day' ? 1 : period === 'week' ? 7 : 30;
+    return { from: new Date(now.getTime() - days * 86_400_000).toISOString(), to: now.toISOString() };
+  };
+
+  const createExport = async () => {
+    setError(null);
+    setNotice(null);
+    let range: { from?: string; to?: string };
+    try { range = selectedPeriodRange(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Choose a valid time period.'); return; }
     setSubmitting(true);
     try {
-      const job = await api.createReadingExport({ sensorIds: selected, from, to });
+      const job = await api.createReadingExport({ sensorIds: selected, ...range });
       setJobs((current) => [job, ...current]);
       setNotice('Your CSV is being prepared. You can leave this page and return to download it later.');
     } catch (cause) { setError(errorText(cause)); }
     finally { setSubmitting(false); }
+  };
+
+  const createReport = async () => {
+    setError(null);
+    setNotice(null);
+    let range: { from?: string; to?: string };
+    try { range = selectedPeriodRange(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Choose a valid time period.'); return; }
+    setReportLoading(true);
+    try {
+      if (period === 'all') {
+        const activeIds = sensors.filter((sensor) => sensor.active !== false).map((sensor) => sensor.id);
+        const activeAvailability = await api.readingAvailability(activeIds);
+        range.from = activeAvailability.first ?? new Date(Date.now() - 86_400_000).toISOString();
+      }
+      await downloadSensorReport(range);
+      setNotice('Your one-page A4 graph report has been downloaded. It includes every active sensor.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not download the graph report.'); }
+    finally { setReportLoading(false); }
   };
 
   const download = async (id: string) => {
@@ -118,9 +141,9 @@ export function History() {
     <main className="min-h-[calc(100vh-64px)] bg-[#f8faf9] px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-6">
         <header>
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-700">Pride Monitor · records</p>
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-700">Tempmo · records</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#0b1f2a]">Sensor history</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">Choose sensors and dates to download every saved reading in a CSV file.</p>
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">Download saved readings as CSV or a one-page A4 graph report for all active sensors.</p>
         </header>
 
         {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
@@ -148,10 +171,11 @@ export function History() {
                 <p className="mt-2 text-xs text-slate-500">No boxes selected means all sensors. Current selection: {selectedNames}.</p>
               </div>
               <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
-                <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first || !availability.archiveConfigured} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
-                <span className="text-xs text-slate-500">Downloads are CSV files and remain available for {availability?.exportTtlDays ?? 7} days.</span>
+                <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
+                <Button type="button" variant="outline" className="gap-2" disabled={reportLoading || loading || !sensors.some((sensor) => sensor.active !== false)} onClick={() => { void createReport(); }}><FileText className="size-4" />{reportLoading ? 'Building report…' : 'Download A4 graphs'}</Button>
+                <span className="w-full text-xs text-slate-500">The graph report uses this time period and includes every configured, active sensor. Inactive sensors are excluded.</span>
+                <span className="text-xs text-slate-500">CSV downloads are prepared in Oracle Object Storage and remain available for {availability?.exportTtlDays ?? 7} days.</span>
                 {availability && !availability.first && <span role="status" className="w-full text-xs text-amber-800">No saved readings are available for the selected sensors.</span>}
-                {availability?.first && !availability.archiveConfigured && <span role="status" className="w-full text-xs text-slate-500">Older archived days need Oracle archive storage; current saved readings can still be exported.</span>}
                 {availabilityLoading && <span role="status" className="w-full text-xs text-slate-500">Checking saved readings…</span>}
               </div>
             </CardContent>
