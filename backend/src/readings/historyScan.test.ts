@@ -30,6 +30,7 @@ it('reads only overlapping archive days and combines them with recent readings',
     } as SensorReading;
     const scan = vi.fn(async function* () { yield hot; });
     const readings = {
+      beginHistoryRead: () => () => {},
       prisma: { sensorArchiveDay: { findMany: async () => [{ day, objects: {
         files: [{ key: 'old-day.parquet', rows: 2, bytes: archive.length, sha256: createHash('sha256').update(archive).digest('hex') }],
         sensorIds: ['01', '02'], firstBySensor: {}, lastBySensor: {},

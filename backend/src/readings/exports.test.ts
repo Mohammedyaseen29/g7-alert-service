@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -29,7 +29,7 @@ it('builds a compressed CSV in the background without loading the reading set at
     },
     sensorArchiveDay: { findMany: async () => [] },
   };
-  const readings = { prisma, async *scan() { yield row; } } as unknown as ReadingsStore;
+  const readings = { prisma, beginHistoryRead: () => () => {}, async *scan() { yield row; } } as unknown as ReadingsStore;
   let uploaded = Buffer.alloc(0);
   const objects = { enabled: true, uploadStream: async (key: string, stream: Readable) => {
     expect(key).toBe(`sensor-exports/${job.id}.csv.gz`);
@@ -98,4 +98,28 @@ it('streams a local compressed export as readable CSV', async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+it('deletes every expired export file and job, including batches larger than 100', async () => {
+  const now = new Date('2032-05-12T12:00:00.000Z');
+  const jobs = Array.from({ length: 101 }, (_, index) => ({
+    id: String(index), status: 'DONE', objectKey: `sensor-exports/${index}.csv.gz`,
+    updatedAt: new Date('2032-05-05T11:59:00.000Z'),
+  }));
+  jobs.push({ id: 'new', status: 'DONE', objectKey: 'sensor-exports/new.csv.gz', updatedAt: new Date('2032-05-05T12:01:00.000Z') });
+  const findMany = vi.fn(async ({ where, take }: { where: { updatedAt: { lt: Date } }; take: number }) =>
+    jobs.filter((job) => job.updatedAt < where.updatedAt.lt).slice(0, take));
+  const deleteJob = vi.fn(async ({ where }: { where: { id: string } }) => {
+    jobs.splice(jobs.findIndex((job) => job.id === where.id), 1);
+  });
+  const deleteObject = vi.fn(async () => undefined);
+  const readings = { prisma: { sensorExportJob: { findMany, delete: deleteJob } } } as unknown as ReadingsStore;
+  const objects = { delete: deleteObject } as unknown as OracleObjects;
+
+  await new SensorExports(readings, objects).cleanupExpired(7, now);
+
+  expect(jobs.map((job) => job.id)).toEqual(['new']);
+  expect(deleteObject).toHaveBeenCalledTimes(101);
+  expect(deleteJob).toHaveBeenCalledTimes(101);
+  expect(findMany).toHaveBeenCalledTimes(3);
 });

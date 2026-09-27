@@ -96,35 +96,34 @@ addresses are stored by the application and are not environment variables.
 `GET /api/readings/availability` · `GET /api/readings/report.pdf` · `POST/GET /api/readings/exports` ·
 `GET /api/readings/exports/:id/download` · `GET /api/alarms/export.csv`
 
-### Sensor history in Oracle Object Storage
+### Sensor history retention
 
-Configure all five `OCI_OBJECT_*` values before startup. Each accepted frame's
-active-sensor readings are written directly to a private Oracle Object Storage
-object under `sensor-live/v1/`. No new raw frame or reading is written to the
-backend disk or as a raw-reading row in PostgreSQL. The live snapshot updates
-only after Oracle confirms the write. The original device `TM` is retained
-without treating it as UTC; the server receipt time is UTC.
+Configure PostgreSQL and all five `OCI_OBJECT_*` values before startup. Each
+accepted frame's active-sensor readings are written to the day's PostgreSQL
+partition before the live snapshot updates. The original device `TM` is
+retained without treating it as UTC; the server receipt time is UTC. A database
+write failure marks `/health` degraded and closes the G7 connection for that
+frame. Frames the base station does not retry can be lost during an outage.
 
-Oracle access is now required for ingestion. If it fails, the backend marks
-`/health` degraded and closes the G7 connection for that frame instead of
-showing an unsaved reading as live. Without any local durable buffer, frames
-that the base station does not retry can be lost during an Oracle outage or
-backend restart. Configure bucket replication/versioning and monitor health;
-this design cannot guarantee uninterrupted capture during a network outage.
-One object is written per reporting frame, so confirm Object Storage request
-costs and retention for the expected sensor rate.
+At startup and every hour, the backend archives complete UTC days older than
+`SENSOR_HOT_DAYS` (30 by default). It writes compressed Parquet files under
+`sensor-history/` in private Oracle Object Storage, downloads each file to
+verify its checksum, records an archive manifest in PostgreSQL, then drops the
+day's database partition. An upload or verification failure retains the
+partition for retry and marks `/health` degraded. Archive files are staged
+temporarily on the backend disk and removed after each attempt; sensor history
+is not durably stored on that disk. Partition boundaries mean the database may
+hold part of a 31st day.
 
-CSV exports are also prepared in Oracle Object Storage and expire after
-`SENSOR_EXPORT_TTL_DAYS` (7 by default). Existing PostgreSQL rows and older
-Oracle archives remain readable. Legacy local export files can still be
-downloaded, but this version creates no new local exports. Migrating or
-deleting previously saved local files is a separate operation and is not done
-automatically.
+CSV exports are streamed to Oracle Object Storage and their files and job
+records are deleted after `SENSOR_EXPORT_TTL_DAYS` (7 by default), with cleanup
+running at startup and every six hours. Existing legacy local export files can
+still be downloaded.
 
 The PDF report uses the selected History sensors, time period, and browser time
 zone. It has summary pages with per-sensor statistics and individual chart pages
-with labelled axes. It reads recent Oracle live objects and legacy PostgreSQL
-rows, and fetches older Oracle archive files only when their days overlap the
+with labelled axes. It reads recent PostgreSQL rows and fetches older Oracle
+archive files only when their days overlap the
 selected period. Readings are scanned and reduced to bounded chart buckets that
 retain each bucket's minimum and maximum. A short threshold excursion, stale reading, or
 station outage that clears before 15 minutes produces no station alert. A
@@ -136,6 +135,15 @@ The app is installable as a PWA over HTTPS. Its service worker caches the app
 shell and static assets, not authenticated API responses or live readings.
 Generate icon PNGs after editing the thermometer SVG with `npm run icons` in
 `frontend`, then run the normal frontend build.
+
+### Ubuntu API reverse proxy
+
+The production Nginx proxy limits `/api/` by client IP to 20 requests per
+second with a burst of 40 and returns HTTP 429 above the limit. `/health`,
+`/ws`, and the base station's TCP port are outside that rule. Nginx sets
+`X-Forwarded-For` to its observed client address for API requests; Express
+trusts that header only when the immediate proxy is on loopback, so the login
+limiter uses the real client IP.
 
 ## Production (Windows)
 

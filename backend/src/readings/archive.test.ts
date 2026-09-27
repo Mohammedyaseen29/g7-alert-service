@@ -19,6 +19,7 @@ const row: SensorReading = {
 
 function fixture(failUpload = false) {
   let dropped = false;
+  let readersFinished = false;
   let manifest: ArchiveManifest | null = null;
   const files = new Map<string, Buffer>();
   const prisma = {
@@ -27,10 +28,16 @@ function fixture(failUpload = false) {
       create: async ({ data }: { data: { objects: ArchiveManifest } }) => { manifest = data.objects; },
     },
     sensorReading: { count: async () => 1 },
-    $executeRawUnsafe: async (sql: string) => { if (sql.startsWith('DROP TABLE')) dropped = true; },
+    $executeRawUnsafe: async (sql: string) => {
+      if (sql.startsWith('DROP TABLE')) {
+        if (!readersFinished) throw new Error('partition dropped during a report');
+        dropped = true;
+      }
+    },
   };
   const readings = {
     prisma,
+    waitForHistoryReads: async () => { readersFinished = true; },
     async *scan() { yield row; },
   } as unknown as ReadingsStore;
   const objects = {
@@ -43,7 +50,7 @@ function fixture(failUpload = false) {
     },
     downloadFile: async (key: string, path: string) => { await writeFile(path, files.get(key)!); },
   } as unknown as OracleObjects;
-  return { archiver: new SensorArchiver(readings, objects, 90), files, get dropped() { return dropped; }, get manifest() { return manifest; } };
+  return { archiver: new SensorArchiver(readings, objects, 30), files, get dropped() { return dropped; }, get manifest() { return manifest; } };
 }
 
 describe('sensor archive', () => {
