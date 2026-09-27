@@ -27,6 +27,7 @@ import { seedAdmin, signTokens, requireAuth, requireRole } from './auth/auth.js'
 import { LiveBus } from './websocket/liveBus.js';
 import { ReadingsStore } from './readings/readingsStore.js';
 import { ObjectReadingJournal } from './readings/objectJournal.js';
+import { SensorArchiver } from './readings/archive.js';
 import { ensureReadingsSchema } from './readings/schema.js';
 import { OracleObjects } from './readings/oracleObjects.js';
 import { SensorExports } from './readings/exports.js';
@@ -48,11 +49,12 @@ if (!hasConfiguredDatabase) logger.warn('Using JSON persistence because DATABASE
 if (!prismaStore && cfg.NODE_ENV === 'production') throw new Error('DATABASE_URL is required in production for users, configuration, alarms, and export jobs');
 const oracleObjects = new OracleObjects(cfg);
 const objectReadings = new ObjectReadingJournal(oracleObjects);
-const readings = prismaStore ? new ReadingsStore(prismaStore.prisma, objectReadings) : null;
+const readings = prismaStore ? new ReadingsStore(prismaStore.prisma) : null;
 if (readings) await ensureReadingsSchema(readings.prisma);
+const archiver = readings ? new SensorArchiver(readings, oracleObjects, cfg.SENSOR_HOT_DAYS) : null;
 const sensorExports = readings ? new SensorExports(readings, oracleObjects, cfg.DATA_DIR) : null;
 if (sensorExports) await sensorExports.start();
-logger.info('New sensor readings and CSV exports are stored in Oracle Object Storage');
+logger.info({ hotDays: cfg.SENSOR_HOT_DAYS }, 'Sensor readings are stored in PostgreSQL before Oracle Parquet archival');
 await seedAdmin(store, cfg.BCRYPT_ROUNDS);
 
 const sensorState = new SensorState();
@@ -79,8 +81,9 @@ const pushEvent = (kind: 'alarms' | 'station', title: string, body: string, url:
 const bus = new LiveBus();
 const bootAt = new Date().toISOString();
 
-// ---- TCP ingestion: Receiver -> Parse -> durable Oracle object -> State -> Alarm
+// ---- TCP ingestion: Receiver -> Parse -> durable PostgreSQL rows -> State -> Alarm
 let storageFailureAt: string | null = null;
+let archiveFailureAt: string | null = null;
 async function processFrame(raw: string, remote: string, receivedAt: string, packetId?: string): Promise<void> {
     let msg;
     try {
@@ -92,8 +95,9 @@ async function processFrame(raw: string, remote: string, receivedAt: string, pac
     for (const discovered of discoverSensorDefinitions(msg, store.getSensors())) store.upsertSensor(discovered);
     const normalized = normalizeMessage(msg, store.getSensors(), receivedAt);
     try {
-      const saved = await objectReadings.captureMessage(msg, normalized, packetId ?? randomUUID());
-      if (saved > 0) storageFailureAt = null;
+      if (readings) await readings.captureMessage(msg, normalized, packetId ?? randomUUID());
+      else await objectReadings.captureMessage(msg, normalized, packetId ?? randomUUID());
+      storageFailureAt = null;
     } catch (error) {
       storageFailureAt = new Date().toISOString();
       throw error;
@@ -125,7 +129,7 @@ const tcp = new G7TcpServer(cfg.G7_HOST, cfg.G7_PORT, { maxMessageBytes: cfg.G7_
 // ---- Public health (no auth, for service monitors)
 app.get('/health', (_req, res) => {
   const t = tcp.stats();
-  res.json({ status: storageFailureAt ? 'degraded' : 'ok', tcpServer: t.listening ? 'listening' : 'stopped', connectedBaseStations: t.connectedBaseStations, lastG7Message: t.lastG7MessageAt, totalMessages: t.totalMessages, storageFailureAt, uptime: process.uptime(), bootAt });
+  res.json({ status: storageFailureAt || archiveFailureAt ? 'degraded' : 'ok', tcpServer: t.listening ? 'listening' : 'stopped', connectedBaseStations: t.connectedBaseStations, lastG7Message: t.lastG7MessageAt, totalMessages: t.totalMessages, storageFailureAt, archiveFailureAt, uptime: process.uptime(), bootAt });
 });
 
 // ---- Auth
@@ -475,6 +479,26 @@ server.listen(cfg.HTTP_PORT, cfg.HTTP_HOST, () => {
 const cleanupExports = () => { void sensorExports?.cleanupExpired(cfg.SENSOR_EXPORT_TTL_DAYS).catch((error) => logger.error({ error }, 'sensor export cleanup failed')); };
 cleanupExports();
 const exportCleanupTimer = setInterval(cleanupExports, 6 * 60 * 60_000);
+let archiving = false;
+const archiveDueReadings = () => {
+  if (!archiver || archiving) return;
+  archiving = true;
+  void (async () => {
+    try {
+      while (await archiver.archiveOneDueDay()) {
+        archiveFailureAt = null;
+      }
+      archiveFailureAt = null;
+    } catch (error) {
+      archiveFailureAt = new Date().toISOString();
+      logger.error({ error }, 'sensor archive failed; PostgreSQL partition retained for retry');
+    } finally {
+      archiving = false;
+    }
+  })();
+};
+archiveDueReadings();
+const archiveTimer = setInterval(archiveDueReadings, 60 * 60_000);
 
 const alarmTimer = setInterval(() => {
   checkStationState();
@@ -492,5 +516,5 @@ const alarmTimer = setInterval(() => {
   }
 }, 15_000);
 
-process.on('SIGINT', async () => { clearInterval(alarmTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await store.close(); process.exit(0); });
-process.on('SIGTERM', async () => { clearInterval(alarmTimer); clearInterval(exportCleanupTimer); sensorExports?.stop(); await tcp.close(); await store.close(); process.exit(0); });
+process.on('SIGINT', async () => { clearInterval(alarmTimer); clearInterval(exportCleanupTimer); clearInterval(archiveTimer); sensorExports?.stop(); await tcp.close(); await store.close(); process.exit(0); });
+process.on('SIGTERM', async () => { clearInterval(alarmTimer); clearInterval(exportCleanupTimer); clearInterval(archiveTimer); sensorExports?.stop(); await tcp.close(); await store.close(); process.exit(0); });

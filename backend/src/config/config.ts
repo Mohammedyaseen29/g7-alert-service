@@ -35,7 +35,7 @@ const ConfigSchema = z.object({
   OCI_OBJECT_BUCKET: z.string().default(''),
   OCI_OBJECT_ACCESS_KEY: z.string().default(''),
   OCI_OBJECT_SECRET_KEY: z.string().default(''),
-  SENSOR_HOT_DAYS: z.coerce.number().int().min(3).max(3650).default(90),
+  SENSOR_HOT_DAYS: z.coerce.number().int().min(3).max(3650).default(30),
   SENSOR_EXPORT_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(7),
   LOG_LEVEL: z.string().default('info'),
   NODE_ENV: z.string().default('development'),

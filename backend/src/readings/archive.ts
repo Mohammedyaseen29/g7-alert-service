@@ -106,6 +106,7 @@ export class SensorArchiver {
       } finally {
         await rm(verificationDirectory, { recursive: true, force: true });
       }
+      await this.readings.waitForHistoryReads();
       await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${partitionName(day)}"`);
       return;
     }
@@ -152,6 +153,8 @@ export class SensorArchiver {
       if (databaseCount !== total) throw new Error(`Archive row count mismatch for ${day.toISOString()}: ${total} of ${databaseCount}`);
       manifest.sensorIds = [...sensorIds].sort();
       await prisma.sensorArchiveDay.create({ data: { day, objects: manifest as unknown as Prisma.InputJsonValue, rowCount: BigInt(total) } });
+      // Reports that started before the manifest was committed may still be reading this partition.
+      await this.readings.waitForHistoryReads();
       await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${partitionName(day)}"`);
       logger.info({ day: day.toISOString(), rows: total, files: manifest.files.length }, 'sensor readings archived in Oracle Object Storage');
     } finally {

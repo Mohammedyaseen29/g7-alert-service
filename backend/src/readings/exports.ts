@@ -78,13 +78,16 @@ export class SensorExports {
 
   async cleanupExpired(ttlDays: number, now = new Date()): Promise<void> {
     const cutoff = new Date(now.getTime() - ttlDays * 86_400_000);
-    const oldJobs = await this.readings.prisma.sensorExportJob.findMany({
-      where: { status: { in: ['DONE', 'FAILED'] }, updatedAt: { lt: cutoff } }, take: 100,
-    });
-    for (const job of oldJobs) {
-      if (job.objectKey?.startsWith('local:')) await rm(join(this.dataDir, 'exports', `${job.id}.csv.gz`), { force: true });
-      else if (job.objectKey) await this.objects.delete(job.objectKey);
-      await this.readings.prisma.sensorExportJob.delete({ where: { id: job.id } });
+    for (;;) {
+      const oldJobs = await this.readings.prisma.sensorExportJob.findMany({
+        where: { status: { in: ['DONE', 'FAILED'] }, updatedAt: { lt: cutoff } }, take: 100,
+      });
+      if (!oldJobs.length) return;
+      for (const job of oldJobs) {
+        if (job.objectKey?.startsWith('local:')) await rm(join(this.dataDir, 'exports', `${job.id}.csv.gz`), { force: true });
+        else if (job.objectKey) await this.objects.delete(job.objectKey);
+        await this.readings.prisma.sensorExportJob.delete({ where: { id: job.id } });
+      }
     }
   }
 

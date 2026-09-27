@@ -1,6 +1,8 @@
 import type { Prisma, PrismaClient, SensorReading } from '@prisma/client';
-import { nextUtcDay, utcDay } from './schema.js';
-import { ObjectReadingJournal } from './objectJournal.js';
+import type { G7ParsedMessage } from '../protocol/g7Types.js';
+import type { NormalizedState } from '../sensors/sensorService.js';
+import { readingsFromFrame } from './frame.js';
+import { ensureDayPartition, nextUtcDay, utcDay } from './schema.js';
 
 export type Reading = SensorReading;
 
@@ -11,7 +13,31 @@ export interface ReadingCursor {
 }
 
 export class ReadingsStore {
-  constructor(readonly prisma: PrismaClient, private readonly objects: ObjectReadingJournal) {}
+  private readonly activeHistoryReads = new Set<Promise<void>>();
+
+  constructor(readonly prisma: PrismaClient) {}
+
+  beginHistoryRead(): () => void {
+    let finish!: () => void;
+    const completed = new Promise<void>((resolve) => { finish = resolve; });
+    this.activeHistoryReads.add(completed);
+    return () => {
+      this.activeHistoryReads.delete(completed);
+      finish();
+    };
+  }
+
+  async waitForHistoryReads(): Promise<void> {
+    await Promise.all([...this.activeHistoryReads]);
+  }
+
+  async captureMessage(msg: G7ParsedMessage, normalized: NormalizedState, packetId: string): Promise<number> {
+    const rows = readingsFromFrame(msg, normalized, packetId);
+    if (!rows.length) return 0;
+    await ensureDayPartition(this.prisma, rows[0].receivedAt);
+    const result = await this.prisma.sensorReading.createMany({ data: rows, skipDuplicates: true });
+    return result.count;
+  }
 
   async page(from: Date, to: Date, sensorIds: string[], cursor?: ReadingCursor, take = 1000): Promise<Reading[]> {
     const where: Prisma.SensorReadingWhereInput = {
@@ -26,7 +52,7 @@ export class ReadingsStore {
     });
   }
 
-  private async *databaseScan(from: Date, to: Date, sensorIds: string[] = []): AsyncGenerator<Reading> {
+  async *scan(from: Date, to: Date, sensorIds: string[] = []): AsyncGenerator<Reading> {
     let cursor: ReadingCursor | undefined;
     for (;;) {
       const rows = await this.page(from, to, sensorIds, cursor);
@@ -34,25 +60,6 @@ export class ReadingsStore {
       for (const row of rows) yield row;
       const last = rows.at(-1)!;
       cursor = { receivedAt: last.receivedAt, packetId: last.packetId, sensorId: last.sensorId };
-    }
-  }
-
-  async *scan(from: Date, to: Date, sensorIds: string[] = []): AsyncGenerator<Reading> {
-    // Include older database readings without putting newly received telemetry there.
-    const database = this.databaseScan(from, to, sensorIds)[Symbol.asyncIterator]();
-    const local = this.objects.scan(from, to, sensorIds)[Symbol.asyncIterator]();
-    let dbRow = await database.next();
-    let localRow = await local.next();
-    while (!dbRow.done || !localRow.done) {
-      if (dbRow.done) { yield localRow.value; localRow = await local.next(); continue; }
-      if (localRow.done) { yield dbRow.value; dbRow = await database.next(); continue; }
-      const a = dbRow.value;
-      const b = localRow.value;
-      const order = a.receivedAt.getTime() - b.receivedAt.getTime()
-        || a.packetId.localeCompare(b.packetId) || a.sensorId.localeCompare(b.sensorId);
-      if (order < 0) { yield a; dbRow = await database.next(); }
-      else if (order > 0) { yield b; localRow = await local.next(); }
-      else { yield b; dbRow = await database.next(); localRow = await local.next(); }
     }
   }
 
@@ -73,9 +80,8 @@ export class ReadingsStore {
       return ids.flatMap((id) => [info.firstBySensor?.[id], info.lastBySensor?.[id]])
         .filter((value): value is string => Boolean(value)).map((value) => new Date(value));
     });
-    const local = await this.objects.availability(sensorIds);
-    const earliest = [first?.receivedAt, local.first, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-    const latest = [last?.receivedAt, local.last, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const earliest = [first?.receivedAt, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    const latest = [last?.receivedAt, ...archivedTimes].filter((date): date is Date => Boolean(date)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
     return { first: earliest, last: latest };
   }
 
