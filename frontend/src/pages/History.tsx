@@ -85,14 +85,14 @@ export function History() {
   };
   const toggleSensor = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
 
-  const selectedPeriodRange = (): { from?: string; to?: string } => {
+  const selectedPeriodRange = (allowFutureEnd = false): { from?: string; to?: string } => {
     const now = new Date();
     if (period === 'custom') {
       if (!customFrom || !customTo) throw new Error('Choose both start and end dates.');
       const start = new Date(customFrom);
       const end = new Date(customTo);
-      if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end || end > now) {
-        throw new Error('Choose a valid range ending no later than now.');
+      if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end || (!allowFutureEnd && end > now)) {
+        throw new Error('Choose a valid start and end date.');
       }
       return { from: start.toISOString(), to: end.toISOString() };
     }
@@ -119,16 +119,12 @@ export function History() {
   const createReport = async () => {
     setError(null);
     setNotice(null);
-    let range: { from?: string; to?: string };
-    try { range = selectedPeriodRange(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Choose a valid time period.'); return; }
     setReportLoading(true);
     try {
-      if (period === 'all') {
-        const selectedAvailability = await api.readingAvailability(selected);
-        range.from = selectedAvailability.first ?? new Date(Date.now() - 86_400_000).toISOString();
-      }
-      await downloadSensorReport({ ...range, sensorIds: selected });
+      if (period === 'custom') {
+        const range = selectedPeriodRange(true);
+        await downloadSensorReport({ from: range.from!, to: range.to!, sensorIds: selected });
+      } else await downloadSensorReport({ period, sensorIds: selected });
       setNotice('Your A4 sensor report has been downloaded.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not download the graph report.'); }
     finally { setReportLoading(false); }

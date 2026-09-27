@@ -32,6 +32,7 @@ import { OracleObjects } from './readings/oracleObjects.js';
 import { SensorExports } from './readings/exports.js';
 import { buildSensorReport } from './readings/reportPdf.js';
 import { scanSavedReadings } from './readings/historyScan.js';
+import { ReportRangeError, resolveReportRange } from './readings/reportRange.js';
 import { z } from 'zod';
 
 const cfg = loadConfig();
@@ -228,13 +229,11 @@ app.get('/api/readings/report.pdf', auth, async (req, res) => {
   const parsed = z.object({
     from: z.string().datetime().optional(),
     to: z.string().datetime().optional(),
+    period: z.enum(['day', 'week', 'month', 'all']).optional(),
     sensorIds: z.string().optional(),
     timeZone: z.string().min(1).max(100).optional(),
   }).safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid report filters' }); return; }
-  const to = parsed.data.to ? new Date(parsed.data.to) : new Date();
-  const from = parsed.data.from ? new Date(parsed.data.from) : new Date(to.getTime() - 86_400_000);
-  if (!(from < to) || to > new Date()) { res.status(400).json({ error: 'Choose a valid report period ending no later than now' }); return; }
   let sensorIds: string[];
   try {
     sensorIds = requestedSensorIds(parsed.data.sensorIds);
@@ -245,6 +244,10 @@ app.get('/api/readings/report.pdf', auth, async (req, res) => {
   const selected = store.getSensors().filter((sensor) => sensorIds.length === 0 || sensorIds.includes(sensor.id)).map(({ id, name }) => ({ id, name }));
   if (!selected.length) { res.status(400).json({ error: 'No sensors are configured' }); return; }
   try {
+    const firstAvailable = parsed.data.period === 'all'
+      ? (await (readings ?? objectReadings).availability(sensorIds)).first
+      : undefined;
+    const { from, to } = resolveReportRange(parsed.data, new Date(), firstAvailable);
     const source = readings ? { scan: (start: Date, end: Date, ids: string[]) => scanSavedReadings(readings, oracleObjects, start, end, ids) } : objectReadings;
     const pdf = await buildSensorReport(source, selected, from, to, { timeZone: parsed.data.timeZone });
     res.setHeader('Content-Type', 'application/pdf');
@@ -253,6 +256,9 @@ app.get('/api/readings/report.pdf', auth, async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(pdf);
   } catch (error) {
+    if (error instanceof ReportRangeError) {
+      res.status(400).json({ error: error.message }); return;
+    }
     logger.error({ error }, 'sensor graph report failed');
     res.status(500).json({ error: 'Could not prepare the sensor graph report' });
   }

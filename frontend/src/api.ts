@@ -94,12 +94,19 @@ export async function downloadReadingExport(job: ReadingExport): Promise<void> {
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }
 
-export async function downloadSensorReport(range: { from?: string; to?: string; sensorIds: string[] }): Promise<void> {
+export type SensorReportRange = { sensorIds: string[] } & ({ period: 'day' | 'week' | 'month' | 'all' } | { from: string; to: string });
+
+export function sensorReportParams(range: SensorReportRange): URLSearchParams {
   const params = new URLSearchParams();
-  if (range.from) params.set('from', range.from);
-  if (range.to) params.set('to', range.to);
+  if ('period' in range) params.set('period', range.period);
+  else { params.set('from', range.from); params.set('to', range.to); }
   if (range.sensorIds.length) params.set('sensorIds', range.sensorIds.join(','));
   params.set('timeZone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  return params;
+}
+
+export async function downloadSensorReport(range: SensorReportRange): Promise<void> {
+  const params = sensorReportParams(range);
   const token = localStorage.getItem('g7_token');
   const response = await fetch(`${BACKEND_URL}/api/readings/report.pdf?${params}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!response.ok) {
