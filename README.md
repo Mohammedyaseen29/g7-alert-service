@@ -136,6 +136,15 @@ shell and static assets, not authenticated API responses or live readings.
 Generate icon PNGs after editing the thermometer SVG with `npm run icons` in
 `frontend`, then run the normal frontend build.
 
+### Ubuntu API reverse proxy
+
+The production Nginx proxy limits `/api/` by client IP to 20 requests per
+second with a burst of 40 and returns HTTP 429 above the limit. `/health`,
+`/ws`, and the base station's TCP port are outside that rule. Nginx sets
+`X-Forwarded-For` to its observed client address for API requests; Express
+trusts that header only when the immediate proxy is on loopback, so the login
+limiter uses the real client IP.
+
 ## Production (Windows)
 
 Option A (preferred): `service-install.ts` via node-windows — auto-start, restart, no UI.

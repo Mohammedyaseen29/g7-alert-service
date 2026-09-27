@@ -38,6 +38,8 @@ import { z } from 'zod';
 
 const cfg = loadConfig();
 const app = express();
+// The production reverse proxy connects over loopback and supplies the client IP.
+app.set('trust proxy', 'loopback');
 const allowedOrigins = cfg.FRONTEND_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: '256kb' }));
