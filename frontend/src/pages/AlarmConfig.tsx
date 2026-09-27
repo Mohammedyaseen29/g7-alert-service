@@ -14,16 +14,23 @@ export function AlarmConfigPage() {
   const [errs, setErrs] = useState<string[]>([]);
   const [msg, setMsg] = useState('');
   const canEdit = auth.role === 'ADMIN' || auth.role === 'OPERATOR';
-  useEffect(() => { (async () => { if (id) setCfg(await api.getConfig(id) as AlarmConfig); })(); }, [id]);
+  useEffect(() => { (async () => {
+    if (!id) return;
+    const config = await api.getConfig(id) as AlarmConfig;
+    setCfg({ ...config, delaySeconds: config.delaySeconds !== undefined && config.delaySeconds >= 60 ? config.delaySeconds : 900 });
+  })(); }, [id]);
   return (
     <main style={{ maxWidth: 560 }}>
       <Button variant="outline" className="mb-3 gap-2" asChild><Link to="/"><ArrowLeft className="size-4" />Back to sensors</Link></Button>
       <div className="card">
         <h2>Sensor {id} — Alarm configuration</h2>
-        <div className="notice">An out-of-range reading or lost sensor must continue for 15 minutes before an alarm, email, sound, or push alert starts. A brief excursion will not alert.</div>
+        <div className="notice">An alarm starts only after a reading stays out of range, or a sensor stays disconnected, for the delay set below. Brief interruptions will not alert.</div>
         {!canEdit && <div className="error">VIEWER role: read-only.</div>}
         <label>Sensor name</label>
         <input value={cfg.name ?? ''} disabled={!canEdit} onChange={(e) => setCfg({ ...cfg, name: e.target.value })} />
+        <label htmlFor="alarm-delay">Alarm delay (minutes)</label>
+        <input id="alarm-delay" type="number" min="1" max="1440" step="1" value={cfg.delaySeconds === 0 ? '' : (cfg.delaySeconds ?? 900) / 60} disabled={!canEdit} onChange={(e) => setCfg({ ...cfg, delaySeconds: Number(e.target.value) * 60 })} />
+        <p className="mt-1 text-sm text-slate-500">Applies to temperature, humidity, battery, and sensor disconnect alarms. Default: 15 minutes. Choose 1 to 1,440 minutes.</p>
         {(cfg.fields?.secondary || cfg.fields?.humidity || cfg.fields?.temperature2) && <>
           <label>Secondary channel measurement</label>
           <select value={cfg.secondaryRole ?? 'unclassified'} disabled={!canEdit} onChange={(e) => setCfg({ ...cfg, secondaryRole: e.target.value as 'unclassified' | 'humidity' | 'temperature2' })}>

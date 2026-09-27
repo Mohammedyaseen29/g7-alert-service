@@ -34,6 +34,8 @@ export interface NotificationConfig {
 
 export function validateConfig(c: AlarmConfig): string[] {
   const errs: string[] = [];
+  if (c.delaySeconds !== undefined && (!Number.isInteger(c.delaySeconds) || c.delaySeconds < 60 || c.delaySeconds > 86_400 || c.delaySeconds % 60 !== 0))
+    errs.push('Alarm delay must be a whole number of minutes from 1 to 1,440.');
   if (c.temperature?.high !== undefined && c.temperature?.low !== undefined && c.temperature.high <= c.temperature.low)
     errs.push('Temperature high must be greater than low.');
   if (c.humidity?.high !== undefined && c.humidity?.low !== undefined && c.humidity.high <= c.humidity.low)

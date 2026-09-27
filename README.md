@@ -12,7 +12,7 @@ an inspection drawer, alarm activity, notification settings, and browser sound c
 - Counts and readings come from the live API; there are no seeded demo sensor cards.
 - Critical indicates an active alarm; Warning indicates an offline sensor or an enabled threshold breach.
 - The dashboard heading can be changed to a client name. It is saved in that browser on that device.
-- Sparklines and the inspection drawer's quick CSV use up to 60 distinct readings observed in the current dashboard session. The **History** page exports saved readings as CSV and draws every active sensor on one A4 landscape PDF page.
+- Sparklines and the inspection drawer's quick CSV use up to 60 distinct readings observed in the current dashboard session. The **History** page exports saved readings as CSV or an A4 summary and chart PDF for the selected sensors and dates.
 - The temperature gauge uses configured low/high limits. Without valid enabled limits, it shows an unavailable scale rather than inventing one.
 - The API currently supplies sensor IDs, not hardware EUI identifiers.
 - Existing authentication roles still govern configuration actions. Browser sound needs a user interaction to enable playback.
@@ -25,7 +25,7 @@ React PWA → REST/WS → Node backend → State / Config / DB
 Browser subscription → PostgreSQL → Web Push → PWA service worker → device notification
 G7 frames → Oracle Object Storage reading objects → live state and alarms
 History filters → Oracle CSV.gz job → authenticated download
-Active sensor history → one-page A4 PDF trend report
+Selected sensor history → A4 summary and chart PDF
 ```
 
 > **Direct-Mode constraint:** the Base Station sends to **one** TCP client. Close the G7 Client before starting Node on `6900`
@@ -41,7 +41,7 @@ Active sensor history → one-page A4 PDF trend report
 
 Set `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, and `WEB_PUSH_SUBJECT` in the backend environment. Generate a VAPID key pair once with `npx web-push generate-vapid-keys`. Keep the same key pair across restarts and deployments, because replacing it invalidates existing browser subscriptions. Push subscriptions are stored in PostgreSQL.
 
-Open the PWA from `https://` or `http://localhost`, sign in, then use **Settings → PWA notifications on this device → Enable on this device**. Each browser/device must opt in. The Settings page also has alarm and base-station choices, a test notification, and a disable action. The service worker displays notifications even when the PWA is closed. Alarm starts and recoveries, station disconnects and reconnects, and stalled or resumed reporting are covered. New alarms and station outage alerts require 15 minutes of continuous failure; recoveries follow only confirmed alerts.
+Open the PWA from `https://` or `http://localhost`, sign in, then use **Settings → PWA notifications on this device → Enable on this device**. Each browser/device must opt in. The Settings page also has alarm and base-station choices, a test notification, and a disable action. The service worker displays notifications even when the PWA is closed. Alarm starts and recoveries, station disconnects and reconnects, and stalled or resumed reporting are covered. Sensor alarms use each sensor's configured delay (15 minutes by default); station outage alerts require 15 minutes of continuous failure. Recoveries follow only confirmed alerts.
 
 ## Quick start
 
@@ -81,7 +81,7 @@ addresses are stored by the application and are not environment variables.
 | 2 Parser | Generic `A/H/B/K<num>` `g7Parser`, `g7StatusDecoder` (raw preserved) | New sensors must not require parser rewrite | `g7Parser.test.ts` incl. real capture + `X01` unknown |
 | 3 Sensors | Live discovery + `sensorService.normalizeMessage`, `SensorState.lastSeen` | Show only sensor slots evidenced by real traffic; preserve ambiguous `Hxx` as a secondary channel | `sensorService.test.ts` incl. inactive-slot filtering and Sensor-06 discovery |
 | 4 DB | Prisma Postgres schema + migrations; `FileStore` JSON fallback when `DATABASE_URL` unset | Persist users/config/alarms; run without PG in dev | Persistence round-trip, seed admin |
-| 5-6 Alarms | `AlarmEngine` NORMAL→PENDING→ALARM→RECOVERED, 15-minute minimum confirmation, repeat dedup, `SENSOR_TIMEOUT_SECONDS` | No per-packet spam; catch silent sensors | `alarmEngine.test.ts` (delay/dedup/recovery/disconnect) |
+| 5-6 Alarms | `AlarmEngine` NORMAL→PENDING→ALARM→RECOVERED, configurable sensor confirmation delay (15 minutes by default), repeat dedup, `SENSOR_TIMEOUT_SECONDS` | No per-packet spam; catch silent sensors | `alarmEngine.test.ts` (delay/dedup/recovery/disconnect) |
 | 7 Email | `NotificationProvider` + `BrevoEmailProvider(nodemailer)` + HTML templates; `EMAIL_ENABLED=false` logs only | Engine never depends on nodemailer directly | Disabled-mode log check, no secret logging |
 | 8-9 API+Auth | REST per spec, `zod` validation, bcrypt+JWT, RBAC ADMIN/OPERATOR/VIEWER, rate-limit | Backend = source of truth; phone can edit safely | `configValidation.test.ts`, login/role checks |
 | 10-12 UI+WS | Mobile-first dashboard/cards, detail, threshold forms (front+back validation), `/ws` live push | Manage thresholds from phone | `types.test.ts`, WS update without refresh |
@@ -121,12 +121,16 @@ downloaded, but this version creates no new local exports. Migrating or
 deleting previously saved local files is a separate operation and is not done
 automatically.
 
-The PDF report uses the selected History time period and includes every
-configured, active sensor on one A4 landscape sheet. It draws Oracle live
-readings and legacy PostgreSQL rows; older Oracle-only archive days are not
-included in the graph report. A short threshold excursion, stale reading, or
-station outage that clears before 15 minutes produces no alarm, buzzer, email,
-or alarm push. Existing shorter alarm delays are treated as 15 minutes.
+The PDF report uses the selected History sensors, time period, and browser time
+zone. It has summary pages with per-sensor statistics and individual chart pages
+with labelled axes. It reads recent Oracle live objects and legacy PostgreSQL
+rows, and fetches older Oracle archive files only when their days overlap the
+selected period. Readings are scanned and reduced to bounded chart buckets that
+retain each bucket's minimum and maximum. A short threshold excursion, stale reading, or
+station outage that clears before 15 minutes produces no station alert. A
+sensor threshold breach or disconnect must last for that sensor's configured
+delay (1–1,440 minutes; 15 minutes by default) before an alarm, buzzer, email,
+or alarm push. Previously saved zero-second delays retain the 15-minute default.
 
 The app is installable as a PWA over HTTPS. Its service worker caches the app
 shell and static assets, not authenticated API responses or live readings.

@@ -94,10 +94,12 @@ export async function downloadReadingExport(job: ReadingExport): Promise<void> {
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }
 
-export async function downloadSensorReport(range: { from?: string; to?: string }): Promise<void> {
+export async function downloadSensorReport(range: { from?: string; to?: string; sensorIds: string[] }): Promise<void> {
   const params = new URLSearchParams();
   if (range.from) params.set('from', range.from);
   if (range.to) params.set('to', range.to);
+  if (range.sensorIds.length) params.set('sensorIds', range.sensorIds.join(','));
+  params.set('timeZone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const token = localStorage.getItem('g7_token');
   const response = await fetch(`${BACKEND_URL}/api/readings/report.pdf?${params}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!response.ok) {
@@ -107,7 +109,7 @@ export async function downloadSensorReport(range: { from?: string; to?: string }
   const blobUrl = URL.createObjectURL(await response.blob());
   const link = document.createElement('a');
   link.href = blobUrl;
-  link.download = `tempmo-sensor-trends-${new Date().toISOString().slice(0, 10)}.pdf`;
+  link.download = `tempmo-sensor-report-${new Date().toISOString().slice(0, 10)}.pdf`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }

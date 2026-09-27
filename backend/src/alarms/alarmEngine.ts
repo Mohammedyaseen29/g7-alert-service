@@ -1,5 +1,5 @@
 import type { NormalizedState } from '../sensors/sensorService.js';
-import type { AlarmConfig } from './alarmTypes.js';
+import { DEFAULT_ALARM_CONFIG, type AlarmConfig } from './alarmTypes.js';
 
 export type AlarmKind = 'temp_high' | 'temp_low' | 'temp2_high' | 'temp2_low' | 'humidity_high' | 'humidity_low' | 'battery_low' | 'sensor_disconnected';
 export type AlarmLifecycle = 'NORMAL' | 'PENDING' | 'ALARM' | 'RECOVERED';
@@ -26,7 +26,15 @@ interface KeyState {
 }
 
 const key = (s: string, k: AlarmKind) => `${s}:${k}`;
-export const MIN_ALARM_DELAY_MS = 15 * 60 * 1000;
+export const DEFAULT_ALARM_DELAY_MS = DEFAULT_ALARM_CONFIG.delaySeconds * 1000;
+
+function alarmDelayMs(config: AlarmConfig): number {
+  // Old saved configurations may contain zero; they used to mean the 15-minute minimum.
+  const seconds = config.delaySeconds;
+  return seconds !== undefined && Number.isFinite(seconds) && seconds >= 60
+    ? seconds * 1000
+    : DEFAULT_ALARM_DELAY_MS;
+}
 
 export interface EngineOpts {
   now?: () => number;
@@ -61,7 +69,7 @@ export class AlarmEngine {
         continue;
       }
       const cfg = this.getConfig(sensorId);
-      const delayMs = Math.max(MIN_ALARM_DELAY_MS, (cfg.delaySeconds ?? 900) * 1000);
+      const delayMs = alarmDelayMs(cfg);
       const checks: { kind: AlarmKind; breached: boolean; value?: number; threshold?: number; enabled: boolean; label: string }[] = [
         { kind: 'temp_high', breached: Boolean(reading.temperature !== undefined && cfg.temperature?.enabled && cfg.temperature.high !== undefined && reading.temperature > cfg.temperature.high), value: reading.temperature, threshold: cfg.temperature?.high, enabled: Boolean(cfg.temperature?.enabled), label: 'High Temperature' },
         { kind: 'temp_low', breached: Boolean(reading.temperature !== undefined && cfg.temperature?.enabled && cfg.temperature.low !== undefined && reading.temperature < cfg.temperature.low), value: reading.temperature, threshold: cfg.temperature?.low, enabled: Boolean(cfg.temperature?.enabled), label: 'Low Temperature' },
@@ -98,7 +106,7 @@ export class AlarmEngine {
       const lastSeen = reading ? Date.parse(reading.lastSeen) : 0;
       const stale = !reading || now - lastSeen > timeoutSeconds * 1000;
       const k = key(sensorId, 'sensor_disconnected');
-      const delayMs = Math.max(MIN_ALARM_DELAY_MS, (cfg.delaySeconds ?? 900) * 1000);
+      const delayMs = alarmDelayMs(cfg);
       if (stale && (reading || this.states.has(k))) {
         this.progress(k, state.stationId, sensorId, 'sensor_disconnected', undefined, undefined, `Sensor ${sensorId} disconnected`, now, iso, delayMs, triggered);
       } else if (!stale) {

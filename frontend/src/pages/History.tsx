@@ -77,6 +77,12 @@ export function History() {
   }, [jobs]);
 
   const selectedNames = useMemo(() => selected.length === 0 ? 'All sensors' : `${selected.length} sensor${selected.length === 1 ? '' : 's'}`, [selected]);
+  const sensorNames = useMemo(() => new Map(sensors.map((sensor) => [sensor.id, sensor.name])), [sensors]);
+  const exportSensors = (job: ReadingExport): string => {
+    if (job.sensorIds.length === 0) return 'All sensors';
+    const names = job.sensorIds.map((id) => sensorNames.get(id) ?? `Sensor ${id}`);
+    return names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} + ${names.length - 3} more`;
+  };
   const toggleSensor = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
 
   const selectedPeriodRange = (): { from?: string; to?: string } => {
@@ -119,12 +125,11 @@ export function History() {
     setReportLoading(true);
     try {
       if (period === 'all') {
-        const activeIds = sensors.filter((sensor) => sensor.active !== false).map((sensor) => sensor.id);
-        const activeAvailability = await api.readingAvailability(activeIds);
-        range.from = activeAvailability.first ?? new Date(Date.now() - 86_400_000).toISOString();
+        const selectedAvailability = await api.readingAvailability(selected);
+        range.from = selectedAvailability.first ?? new Date(Date.now() - 86_400_000).toISOString();
       }
-      await downloadSensorReport(range);
-      setNotice('Your one-page A4 graph report has been downloaded. It includes every active sensor.');
+      await downloadSensorReport({ ...range, sensorIds: selected });
+      setNotice('Your A4 sensor report has been downloaded.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not download the graph report.'); }
     finally { setReportLoading(false); }
   };
@@ -143,7 +148,7 @@ export function History() {
         <header>
           <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-700">Tempmo · records</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#0b1f2a]">Sensor history</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">Download saved readings as CSV or a one-page A4 graph report for all active sensors.</p>
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">Download saved readings as CSV or an A4 summary and chart report for your selected sensors and dates.</p>
         </header>
 
         {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
@@ -172,8 +177,8 @@ export function History() {
               </div>
               <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
                 <Button type="button" className="gap-2" disabled={submitting || availabilityLoading || !availability?.first} onClick={() => { void createExport(); }}><Download className="size-4" />{submitting ? 'Preparing…' : 'Prepare CSV'}</Button>
-                <Button type="button" variant="outline" className="gap-2" disabled={reportLoading || loading || !sensors.some((sensor) => sensor.active !== false)} onClick={() => { void createReport(); }}><FileText className="size-4" />{reportLoading ? 'Building report…' : 'Download A4 graphs'}</Button>
-                <span className="w-full text-xs text-slate-500">The graph report uses this time period and includes every configured, active sensor. Inactive sensors are excluded.</span>
+                <Button type="button" variant="outline" className="gap-2" disabled={reportLoading || loading || sensors.length === 0 || availabilityLoading || !availability?.first} onClick={() => { void createReport(); }}><FileText className="size-4" />{reportLoading ? 'Building report…' : 'Download A4 report'}</Button>
+                <span className="w-full text-xs text-slate-500">The report uses the selected time period and sensors. It includes a summary and a chart page for each sensor, with times shown in your device's time zone.</span>
                 <span className="text-xs text-slate-500">CSV downloads are prepared in Oracle Object Storage and remain available for {availability?.exportTtlDays ?? 7} days.</span>
                 {availability && !availability.first && <span role="status" className="w-full text-xs text-amber-800">No saved readings are available for the selected sensors.</span>}
                 {availabilityLoading && <span role="status" className="w-full text-xs text-slate-500">Checking saved readings…</span>}
@@ -193,7 +198,7 @@ export function History() {
         <Card className="border-slate-200 bg-white shadow-sm">
           <CardHeader className="flex-row items-center justify-between gap-3"><CardTitle className="flex items-center gap-2 text-lg"><Thermometer className="size-5 text-teal-700" />Your exports</CardTitle><Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => { void api.readingExports().then(setJobs).catch((cause) => setError(errorText(cause))); }}><RefreshCw className="size-3.5" />Refresh</Button></CardHeader>
           <CardContent>
-            {jobs.length === 0 ? <p className="py-5 text-sm text-slate-500">No exports requested yet.</p> : <div className="space-y-2">{jobs.map((job) => <div key={job.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="m-0 text-sm font-semibold text-slate-900">{new Date(job.from).toLocaleDateString()} – {new Date(job.to).toLocaleDateString()} · {job.sensorIds.length ? `${job.sensorIds.length} sensors` : 'All sensors'}</p><p className="mt-1 text-xs text-slate-500">{job.status === 'DONE' ? `${Number(job.rowCount ?? 0).toLocaleString()} readings · ready to download` : job.status === 'FAILED' ? (job.error ?? 'Export failed') : job.status === 'PROCESSING' ? `${Number(job.rowCount ?? 0).toLocaleString()} readings processed` : 'Waiting to start'}</p></div>{job.status === 'DONE' ? <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => { void download(job.id); }}><Download className="size-4" />Download</Button> : <span className={`text-xs font-semibold uppercase tracking-wider ${job.status === 'FAILED' ? 'text-rose-700' : 'text-teal-700'}`}>{job.status.toLowerCase()}</span>}</div>)}</div>}
+            {jobs.length === 0 ? <p className="py-5 text-sm text-slate-500">No exports requested yet.</p> : <div className="space-y-2">{jobs.map((job) => <div key={job.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="m-0 text-sm font-semibold text-slate-900">{new Date(job.from).toLocaleDateString()} – {new Date(job.to).toLocaleDateString()}</p><p className="mt-1 text-sm text-slate-700" title={job.sensorIds.length ? job.sensorIds.map((id) => sensorNames.get(id) ?? `Sensor ${id}`).join(', ') : 'All sensors'}>{exportSensors(job)}</p><p className="mt-1 text-xs text-slate-500">{job.status === 'DONE' ? `${Number(job.rowCount ?? 0).toLocaleString()} readings · ready to download` : job.status === 'FAILED' ? (job.error ?? 'Export failed') : job.status === 'PROCESSING' ? `${Number(job.rowCount ?? 0).toLocaleString()} readings processed` : 'Waiting to start'}</p></div>{job.status === 'DONE' ? <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => { void download(job.id); }}><Download className="size-4" />Download</Button> : <span className={`text-xs font-semibold uppercase tracking-wider ${job.status === 'FAILED' ? 'text-rose-700' : 'text-teal-700'}`}>{job.status.toLowerCase()}</span>}</div>)}</div>}
           </CardContent>
         </Card>
       </div>

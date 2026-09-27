@@ -1,19 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { AlarmEngine, MIN_ALARM_DELAY_MS } from './alarmEngine.js';
+import { AlarmEngine, DEFAULT_ALARM_DELAY_MS } from './alarmEngine.js';
 import { DEFAULT_ALARM_CONFIG } from './alarmTypes.js';
 
 const snap = (temp: number, at: number) => ({ stationId: '000000', lastMessageAt: new Date(at).toISOString(), rawMessage: '', sensors: { '02': { temperature: temp, lastSeen: new Date(at).toISOString() } } }) as never;
 
 describe('confirmed alarms', () => {
-  it('waits for 15 continuous minutes even when an older configuration has a shorter delay', () => {
+  it('uses the default 15 minutes for an older configuration with zero delay', () => {
     let now = 1_000_000;
     const eng = new AlarmEngine(() => ({ ...structuredClone(DEFAULT_ALARM_CONFIG), delaySeconds: 0 }), { now: () => now });
     expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(0);
-    now += MIN_ALARM_DELAY_MS - 1;
+    now += DEFAULT_ALARM_DELAY_MS - 1;
     expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(0);
     now += 1;
     expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(1);
     expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(0);
+  });
+
+  it.each([5, 10, 15])('confirms a sustained breach after the configured %i-minute delay', (minutes) => {
+    let now = 1_000_000;
+    const eng = new AlarmEngine(() => ({ ...structuredClone(DEFAULT_ALARM_CONFIG), delaySeconds: minutes * 60 }), { now: () => now });
+    eng.evaluate(snap(35, now), 120);
+    now += minutes * 60_000 - 1;
+    expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(0);
+    now += 1;
+    expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(1);
   });
 
   it('cancels a short breach and starts a new 15-minute period', () => {
@@ -35,10 +45,10 @@ describe('confirmed alarms', () => {
     const eng = new AlarmEngine(() => structuredClone(DEFAULT_ALARM_CONFIG), { now: () => now });
     eng.evaluate(snap(35, now), 120);
     const oldAt = now;
-    now += MIN_ALARM_DELAY_MS;
+    now += DEFAULT_ALARM_DELAY_MS;
     expect(eng.evaluate(snap(35, oldAt), 120).triggered).toHaveLength(0);
     expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(0);
-    now += MIN_ALARM_DELAY_MS;
+    now += DEFAULT_ALARM_DELAY_MS;
     expect(eng.evaluate(snap(35, now), 120).triggered).toHaveLength(1);
   });
 
@@ -46,7 +56,7 @@ describe('confirmed alarms', () => {
     let now = 1_000_000;
     const eng = new AlarmEngine(() => structuredClone(DEFAULT_ALARM_CONFIG), { now: () => now });
     eng.evaluate(snap(35, now), 120);
-    now += MIN_ALARM_DELAY_MS;
+    now += DEFAULT_ALARM_DELAY_MS;
     eng.evaluate(snap(35, now), 120);
     expect(eng.evaluate(snap(20, now), 120).recovered).toHaveLength(1);
   });
@@ -56,9 +66,20 @@ describe('confirmed alarms', () => {
     const eng = new AlarmEngine(() => structuredClone(DEFAULT_ALARM_CONFIG), { now: () => now });
     const lastSeen = now - 200_000;
     expect(eng.checkTimeouts(snap(25, lastSeen), 120).triggered).toHaveLength(0);
-    now += MIN_ALARM_DELAY_MS;
+    now += DEFAULT_ALARM_DELAY_MS;
     expect(eng.checkTimeouts(snap(25, lastSeen), 120).triggered[0].kind).toBe('sensor_disconnected');
     expect(eng.checkTimeouts(snap(25, now), 120).recovered[0].kind).toBe('sensor_disconnected');
+  });
+
+  it('applies the configured delay to a disconnected sensor', () => {
+    let now = 1_000_000;
+    const eng = new AlarmEngine(() => ({ ...structuredClone(DEFAULT_ALARM_CONFIG), delaySeconds: 5 * 60 }), { now: () => now });
+    const lastSeen = now - 200_000;
+    eng.checkTimeouts(snap(25, lastSeen), 120);
+    now += 5 * 60_000 - 1;
+    expect(eng.checkTimeouts(snap(25, lastSeen), 120).triggered).toHaveLength(0);
+    now += 1;
+    expect(eng.checkTimeouts(snap(25, lastSeen), 120).triggered).toHaveLength(1);
   });
 
   it('keeps the disconnect timer while other frames evaluate stale sensors', () => {

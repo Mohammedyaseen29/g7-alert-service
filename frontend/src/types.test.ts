@@ -8,4 +8,9 @@ describe('frontend: threshold validation', () => {
   it('accepts sane config', () => {
     expect(validateConfig({ temperature: { high: 30, low: 10 }, humidity: { high: 80, low: 20 }, battery: { low: 3.3 } })).toHaveLength(0);
   });
+  it('accepts a five-minute delay and rejects invalid delay values', () => {
+    expect(validateConfig({ delaySeconds: 300 })).toHaveLength(0);
+    expect(validateConfig({ delaySeconds: 0 })).not.toHaveLength(0);
+    expect(validateConfig({ delaySeconds: 61 })).not.toHaveLength(0);
+  });
 });

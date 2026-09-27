@@ -27,7 +27,7 @@ it('builds a compressed CSV in the background without loading the reading set at
       updateMany: async () => { job.status = 'PROCESSING'; return { count: 1 }; },
       update: async ({ data }: { data: Partial<typeof job> }) => { Object.assign(job, data); return job; },
     },
-    sensorArchiveDay: { findUnique: async () => null },
+    sensorArchiveDay: { findMany: async () => [] },
   };
   const readings = { prisma, async *scan() { yield row; } } as unknown as ReadingsStore;
   let uploaded = Buffer.alloc(0);
